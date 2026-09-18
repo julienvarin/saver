@@ -279,24 +279,45 @@ function renderItem(r) {
 /* ------------------------------------------------------------------ */
 /*  Auth                                                               */
 /* ------------------------------------------------------------------ */
-function appUrl() {
-  return window.location.origin + window.location.pathname;
+async function signIn() {
+  const email = $("#auth-email").value.trim();
+  const password = $("#auth-password").value;
+  if (!email || !email.includes("@")) { toast("Enter a valid email", true); return; }
+  if (!password) { toast("Enter your password", true); return; }
+  const btn = $("#auth-signin");
+  btn.disabled = true; btn.textContent = "Signing in…";
+  const { error } = await sb.auth.signInWithPassword({ email, password });
+  btn.disabled = false; btn.textContent = "Sign in";
+  if (error) {
+    const msg = $("#auth-msg");
+    if (/invalid login credentials/i.test(error.message)) {
+      msg.hidden = false;
+      msg.textContent = 'No account matches that email + password. Tap "Create account" to make one.';
+    } else {
+      toast(error.message, true);
+    }
+    return;
+  }
+  startApp();
 }
 
-async function sendMagicLink() {
+async function signUp() {
   const email = $("#auth-email").value.trim();
+  const password = $("#auth-password").value;
   if (!email || !email.includes("@")) { toast("Enter a valid email", true); return; }
-  const btn = $("#auth-send");
-  btn.disabled = true; btn.textContent = "Sending…";
-  const { error } = await sb.auth.signInWithOtp({
-    email,
-    options: { emailRedirectTo: appUrl() },
-  });
-  btn.disabled = false; btn.textContent = "Send magic link";
-  const msg = $("#auth-msg");
+  if (password.length < 6) { toast("Password must be at least 6 characters", true); return; }
+  const btn = $("#auth-signup");
+  btn.disabled = true; btn.textContent = "Creating…";
+  const { data, error } = await sb.auth.signUp({ email, password });
+  btn.disabled = false; btn.textContent = "Create account";
   if (error) { toast(error.message, true); return; }
-  msg.hidden = false;
-  msg.textContent = "Check your inbox and tap the link. You can keep this tab open.";
+  if (data.session) {
+    startApp();
+  } else {
+    const msg = $("#auth-msg");
+    msg.hidden = false;
+    msg.textContent = 'Account created. Turn off "Confirm email" in Supabase (Authentication → Sign In / Providers → Email), then tap Sign in.';
+  }
 }
 
 async function signOut() {
@@ -368,11 +389,7 @@ async function boot() {
     return;
   }
 
-  // If we returned from a magic link, clean the URL after session is picked up.
   const { data: { session } } = await sb.auth.getSession();
-  if (window.location.hash.includes("access_token") || window.location.search.includes("code=")) {
-    history.replaceState(null, "", appUrl());
-  }
 
   if (!session) {
     showScreen("screen-auth");
@@ -397,8 +414,9 @@ function wire() {
   $("#cfg-reset").addEventListener("click", resetConfig);
 
   // auth
-  $("#auth-send").addEventListener("click", sendMagicLink);
-  $("#auth-email").addEventListener("keydown", (e) => { if (e.key === "Enter") sendMagicLink(); });
+  $("#auth-signin").addEventListener("click", signIn);
+  $("#auth-signup").addEventListener("click", signUp);
+  $("#auth-password").addEventListener("keydown", (e) => { if (e.key === "Enter") signIn(); });
 
   // keypad
   $$(".keypad .key").forEach((b) => b.addEventListener("click", () => pressKey(b.dataset.k)));

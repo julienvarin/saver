@@ -36,14 +36,16 @@
     </div>
   </section>
 
-  <!-- Auth: magic link -->
+  <!-- Auth: email + password -->
   <section id="screen-auth" class="screen pad">
     <div class="stack">
       <div class="brand">€</div>
       <h1 class="title">Saver</h1>
-      <p class="hint">Sign in once. Enter your email and tap the link we send you.</p>
+      <p class="hint">Sign in once — it stays signed in on this device.</p>
       <input id="auth-email" class="field" type="email" inputmode="email" autocomplete="email" autocapitalize="off" spellcheck="false" placeholder="you@email.com" />
-      <button id="auth-send" class="btn primary">Send magic link</button>
+      <input id="auth-password" class="field" type="password" autocomplete="current-password" placeholder="Password" />
+      <button id="auth-signin" class="btn primary">Sign in</button>
+      <button id="auth-signup" class="btn ghost">Create account</button>
       <p id="auth-msg" class="hint center" hidden></p>
       <button id="cfg-reset" class="btn ghost small">Change Supabase settings</button>
     </div>

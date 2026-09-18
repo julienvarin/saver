@@ -20,14 +20,12 @@ No build step, no framework — plain HTML/CSS/JS + the Supabase JS client from 
    contents of [`supabase/schema.sql`](supabase/schema.sql), and click **Run**.
    This creates the `expenses` table with Row Level Security so you only ever see your own data.
 
-3. **Enable email login.** Go to **Authentication → Sign In / Providers** and make sure
-   **Email** is enabled. (Magic-link / OTP is on by default.)
+3. **Enable email + password login (no confirmation email).** Go to
+   **Authentication → Sign In / Providers → Email** and make sure **Email** is enabled,
+   then turn **Confirm email OFF** and save. This lets you set an email + password once and
+   sign in instantly — no confirmation emails are ever sent, so you never hit email rate limits.
 
-4. **Allow your app's URL.** Go to **Authentication → URL Configuration** and add your
-   GitHub Pages URL (see step 2 below, e.g. `https://YOURNAME.github.io/saver/`) to
-   **Site URL** and **Redirect URLs**. This lets the magic link return you to the app.
-
-5. **Grab your keys.** Go to **Project Settings → API** (or **Data API**) and copy:
+4. **Grab your keys.** Go to **Project Settings → API** (or **Data API**) and copy:
    - **Project URL** — looks like `https://abcdefgh.supabase.co`
    - **anon public key** — the long `anon` / publishable key
      (never use the `service_role` key here).
@@ -58,9 +56,10 @@ that publishes the site on every push to `main`.
 ## 3. Add it to your iPhone home screen
 
 1. Open the app URL in **Safari** on your iPhone.
-2. First launch asks for your **Supabase URL** and **anon key** (from step 1.5) — paste them
+2. First launch asks for your **Supabase URL** and **anon key** (from step 1.4) — paste them
    once; they're stored only on your device.
-3. Enter your **email**, tap the **magic link** in your inbox — you stay signed in.
+3. Enter an **email + password** and tap **Create account** (first time), then **Sign in**.
+   You stay signed in on this device — no emails involved.
 4. Tap the **Share** button → **Add to Home Screen**. Now it opens full-screen like a
    native app, straight from your home screen.
 
