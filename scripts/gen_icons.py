@@ -27,10 +27,10 @@ def sample(x, y, n):
     # background gradient (by vertical position)
     bg = tuple(lerp(TOP[i], BOT[i], y) for i in range(3))
 
-    # euro glyph geometry in unit space, centered
-    cx, cy = 0.46, 0.50
-    R = 0.30          # outer ring radius
-    t = 0.085         # stroke thickness
+    # euro glyph geometry in unit space, optically centered
+    cx, cy = 0.565, 0.50
+    R = 0.27          # outer ring radius
+    t = 0.082         # stroke thickness
     dx, dy = x - cx, y - cy
     dist = math.hypot(dx, dy)
     ang = math.degrees(math.atan2(dy, dx))  # -180..180, 0 = right

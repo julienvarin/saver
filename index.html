@@ -102,6 +102,9 @@
         <p class="hint">Category</p>
       </div>
       <div id="cats" class="chips"></div>
+      <div id="cat-custom-wrap" class="cat-custom" hidden>
+        <input id="cat-custom" class="field" type="text" enterkeyhint="done" autocomplete="off" autocapitalize="words" placeholder="New category name" />
+      </div>
       <div class="row">
         <button id="cats-back" class="btn ghost">Back</button>
         <button id="cats-next" class="btn primary grow">Next</button>
@@ -131,18 +134,41 @@
     </div>
   </section>
 
-  <!-- History -->
+  <!-- History / stats -->
   <section id="screen-history" class="screen">
     <header class="topbar">
       <button id="hist-back" class="icon-btn" aria-label="Back">‹</button>
-      <span class="progress">History</span>
+      <span class="progress">Stats</span>
       <span class="icon-btn" aria-hidden="true"></span>
     </header>
-    <div class="hist-total">
-      <div class="hist-total-label" id="hist-month-label"></div>
-      <div class="hist-total-amount" id="hist-total"></div>
+
+    <div class="month-nav">
+      <button id="month-prev" class="icon-btn" aria-label="Previous month">‹</button>
+      <div id="month-label" class="month-label"></div>
+      <button id="month-next" class="icon-btn" aria-label="Next month">›</button>
     </div>
-    <div id="hist-list" class="hist-list"></div>
+
+    <div id="hist-scroll" class="hist-scroll">
+      <div class="stat-total">
+        <div class="stat-total-label">Total spent</div>
+        <div id="stat-total" class="stat-total-amount">€0</div>
+      </div>
+
+      <div class="nw">
+        <div class="nw-bar">
+          <div id="nw-need" class="nw-seg need" style="width:0"></div>
+          <div id="nw-want" class="nw-seg want" style="width:0"></div>
+        </div>
+        <div class="nw-legend">
+          <div class="nw-item"><span class="dot need"></span>Needs&nbsp;<b id="nw-need-amt">€0</b>&nbsp;<span class="pct" id="nw-need-pct"></span></div>
+          <div class="nw-item"><span class="dot want"></span>Wants&nbsp;<b id="nw-want-amt">€0</b>&nbsp;<span class="pct" id="nw-want-pct"></span></div>
+        </div>
+      </div>
+
+      <div id="cat-breakdown"></div>
+
+      <div id="hist-list" class="hist-list-inner"></div>
+    </div>
   </section>
 
   <!-- Toast -->
