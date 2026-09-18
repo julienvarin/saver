@@ -50,39 +50,42 @@ function haptic() {
 /* ------------------------------------------------------------------ */
 /*  Money formatting                                                   */
 /* ------------------------------------------------------------------ */
-function formatEuro(cents) {
-  const neg = cents < 0;
-  const abs = Math.abs(cents);
-  const euros = Math.floor(abs / 100);
-  const c = String(abs % 100).padStart(2, "0");
-  const grouped = euros.toLocaleString("en-US"); // 1,234
-  return (neg ? "-" : "") + "€" + grouped + "." + c;
+// Amounts are whole euros. Cents are shown only if some legacy value has them.
+function formatEuro(euros) {
+  const n = Number(euros) || 0;
+  const neg = n < 0;
+  const abs = Math.abs(n);
+  const whole = Math.floor(abs);
+  const frac = Math.round((abs - whole) * 100);
+  const grouped = whole.toLocaleString("en-US"); // 1,234
+  const dec = frac ? "." + String(frac).padStart(2, "0") : "";
+  return (neg ? "-" : "") + "€" + grouped + dec;
 }
 
 /* ------------------------------------------------------------------ */
 /*  Entry flow state                                                   */
 /* ------------------------------------------------------------------ */
 const entry = {
-  cents: 0,
+  amount: 0, // whole euros
   title: "",
   categories: [],
   kind: null,
 };
 
 function resetEntry() {
-  entry.cents = 0;
+  entry.amount = 0;
   entry.title = "";
   entry.categories = [];
   entry.kind = null;
   renderAmount();
   $("#title-input").value = "";
-  $$("#cats .chip").forEach((c) => c.classList.remove("selected"));
+  resetChips();
 }
 
 function renderAmount() {
   const el = $("#amount");
-  el.textContent = formatEuro(entry.cents);
-  el.classList.toggle("zero", entry.cents === 0);
+  el.textContent = formatEuro(entry.amount);
+  el.classList.toggle("zero", entry.amount === 0);
 }
 
 function updateProgress(stepId) {
@@ -97,7 +100,7 @@ function updateProgress(stepId) {
 }
 
 function syncMiniAmount() {
-  const txt = formatEuro(entry.cents);
+  const txt = formatEuro(entry.amount);
   $("#title-amount").textContent = txt;
   $("#cats-amount").textContent = txt;
   $("#kind-amount").textContent = txt;
@@ -107,35 +110,90 @@ function syncMiniAmount() {
 function pressKey(k) {
   haptic();
   if (k === "clear") {
-    entry.cents = 0;
+    entry.amount = 0;
   } else if (k === "back") {
-    entry.cents = Math.floor(entry.cents / 10);
+    entry.amount = Math.floor(entry.amount / 10);
   } else {
     const d = parseInt(k, 10);
-    if (entry.cents < 100000000) { // cap at 1,000,000.00
-      entry.cents = entry.cents * 10 + d;
+    if (entry.amount < 1000000) { // cap at 9,999,999 €
+      entry.amount = entry.amount * 10 + d;
     }
   }
   renderAmount();
 }
 
 /* ---- categories chips ---- */
+let otherChip = null;
+
+function makeChip(label) {
+  const b = document.createElement("button");
+  b.className = "chip";
+  b.type = "button";
+  b.textContent = label;
+  return b;
+}
+
+function toggleChip(b, name) {
+  haptic();
+  const i = entry.categories.indexOf(name);
+  if (i >= 0) { entry.categories.splice(i, 1); b.classList.remove("selected"); }
+  else { entry.categories.push(name); b.classList.add("selected"); }
+}
+
 function buildChips() {
   const wrap = $("#cats");
   wrap.innerHTML = "";
   CATEGORIES.forEach((name) => {
-    const b = document.createElement("button");
-    b.className = "chip";
-    b.type = "button";
-    b.textContent = name;
-    b.addEventListener("click", () => {
-      haptic();
-      const i = entry.categories.indexOf(name);
-      if (i >= 0) { entry.categories.splice(i, 1); b.classList.remove("selected"); }
-      else { entry.categories.push(name); b.classList.add("selected"); }
-    });
-    wrap.appendChild(b);
+    if (name === "Other") {
+      const b = makeChip("+ Other");
+      b.classList.add("add");
+      b.addEventListener("click", () => {
+        haptic();
+        const w = $("#cat-custom-wrap");
+        w.hidden = false;
+        const inp = $("#cat-custom");
+        inp.value = "";
+        setTimeout(() => inp.focus(), 40);
+      });
+      wrap.appendChild(b);
+      otherChip = b;
+    } else {
+      const b = makeChip(name);
+      b.addEventListener("click", () => toggleChip(b, name));
+      wrap.appendChild(b);
+    }
   });
+}
+
+// Tapping "+ Other" reveals an input; the typed name becomes a new selected chip.
+function addCustomCategory(rawName) {
+  const name = (rawName || "").trim();
+  const w = $("#cat-custom-wrap");
+  w.hidden = true;
+  $("#cat-custom").value = "";
+  if (!name || entry.categories.indexOf(name) >= 0) return;
+
+  const b = makeChip(name);
+  b.classList.add("selected");
+  b.dataset.custom = "1";
+  b.addEventListener("click", () => {
+    const i = entry.categories.indexOf(name);
+    if (i >= 0) entry.categories.splice(i, 1);
+    haptic();
+    b.remove();
+  });
+  $("#cats").insertBefore(b, otherChip);
+  entry.categories.push(name);
+  haptic();
+}
+
+function resetChips() {
+  $$("#cats .chip").forEach((c) => {
+    if (c.dataset.custom) c.remove();
+    else c.classList.remove("selected");
+  });
+  const w = $("#cat-custom-wrap");
+  if (w) { w.hidden = true; $("#cat-custom").value = ""; }
 }
 
 /* ------------------------------------------------------------------ */
@@ -147,14 +205,14 @@ async function saveExpense() {
 
   const record = {
     user_id: user.id,
-    amount: entry.cents / 100,
+    amount: entry.amount,
     title: entry.title || null,
     categories: entry.categories,
     kind: entry.kind,
   };
 
   // optimistic confirmation
-  $("#saved-amount").textContent = formatEuro(entry.cents);
+  $("#saved-amount").textContent = formatEuro(entry.amount);
   showStep("step-saved");
   haptic();
 
@@ -173,8 +231,22 @@ async function saveExpense() {
 }
 
 /* ------------------------------------------------------------------ */
-/*  History                                                            */
+/*  History / stats                                                    */
 /* ------------------------------------------------------------------ */
+let statsMonth = null; // Date at the first day of the shown month
+
+function monthRange(d) {
+  return {
+    start: new Date(d.getFullYear(), d.getMonth(), 1),
+    end: new Date(d.getFullYear(), d.getMonth() + 1, 1),
+  };
+}
+
+function isCurrentMonth(d) {
+  const now = new Date();
+  return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+}
+
 function dayLabel(d) {
   const now = new Date();
   const isSame = (a, b) => a.toDateString() === b.toDateString();
@@ -184,37 +256,105 @@ function dayLabel(d) {
   return d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
 }
 
+function openHistory() {
+  statsMonth = new Date();
+  statsMonth.setDate(1);
+  showScreen("screen-history");
+  loadHistory();
+}
+
+function changeMonth(delta) {
+  const d = new Date(statsMonth);
+  d.setMonth(d.getMonth() + delta);
+  if (delta > 0 && d > new Date()) return; // don't go past the current month
+  statsMonth = d;
+  haptic();
+  loadHistory();
+}
+
 async function loadHistory() {
+  $("#month-label").textContent =
+    statsMonth.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  $("#month-next").disabled = isCurrentMonth(statsMonth);
+  $("#hist-scroll").scrollTop = 0;
+
   const list = $("#hist-list");
   list.innerHTML = '<div class="hist-empty">Loading…</div>';
 
-  const now = new Date();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-  $("#hist-month-label").textContent =
-    now.toLocaleDateString(undefined, { month: "long", year: "numeric" }) + " spent";
-
+  const { start, end } = monthRange(statsMonth);
   const { data, error } = await sb
     .from("expenses")
     .select("*")
-    .order("created_at", { ascending: false })
-    .limit(200);
+    .gte("created_at", start.toISOString())
+    .lt("created_at", end.toISOString())
+    .order("created_at", { ascending: false });
 
   if (error) { list.innerHTML = '<div class="hist-empty">Error loading.</div>'; toast(error.message, true); return; }
-  if (!data || data.length === 0) { list.innerHTML = '<div class="hist-empty">No expenses yet.</div>'; $("#hist-total").textContent = formatEuro(0); return; }
 
-  // monthly total
-  let monthCents = 0;
-  data.forEach((r) => {
-    if (new Date(r.created_at) >= new Date(monthStart)) {
-      monthCents += Math.round((r.amount || 0) * 100);
-    }
+  renderStats(data || []);
+  renderList(data || []);
+}
+
+function renderStats(rows) {
+  let total = 0, need = 0, want = 0;
+  const byCat = {};
+  rows.forEach((r) => {
+    const a = Number(r.amount) || 0;
+    total += a;
+    if (r.kind === "need") need += a;
+    else if (r.kind === "want") want += a;
+    const cats = (r.categories && r.categories.length) ? r.categories : ["Uncategorised"];
+    cats.forEach((c) => { byCat[c] = (byCat[c] || 0) + a; });
   });
-  $("#hist-total").textContent = formatEuro(monthCents);
 
-  // group by day
+  $("#stat-total").textContent = formatEuro(total);
+
+  const nwTotal = need + want;
+  const needPct = nwTotal ? Math.round((need / nwTotal) * 100) : 0;
+  $("#nw-need").style.width = (nwTotal ? (need / nwTotal) * 100 : 0) + "%";
+  $("#nw-want").style.width = (nwTotal ? (want / nwTotal) * 100 : 0) + "%";
+  $("#nw-need-amt").textContent = formatEuro(need);
+  $("#nw-want-amt").textContent = formatEuro(want);
+  $("#nw-need-pct").textContent = nwTotal ? needPct + "%" : "";
+  $("#nw-want-pct").textContent = nwTotal ? (100 - needPct) + "%" : "";
+
+  const wrap = $("#cat-breakdown");
+  wrap.innerHTML = "";
+  const cats = Object.keys(byCat).sort((a, b) => byCat[b] - byCat[a]);
+  if (cats.length) {
+    const head = document.createElement("div");
+    head.className = "section-label";
+    head.textContent = "By category";
+    wrap.appendChild(head);
+    const max = byCat[cats[0]] || 1;
+    cats.forEach((c) => {
+      const row = document.createElement("div");
+      row.className = "cat-row";
+      row.innerHTML =
+        '<div class="cat-row-top"><span>' + escapeHtml(c) + "</span><b>" + formatEuro(byCat[c]) + "</b></div>" +
+        '<div class="cat-track"><div class="cat-fill" style="width:' + ((byCat[c] / max) * 100) + '%"></div></div>';
+      wrap.appendChild(row);
+    });
+  }
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (m) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
+}
+
+function renderList(rows) {
+  const list = $("#hist-list");
   list.innerHTML = "";
+  if (!rows.length) { list.innerHTML = '<div class="hist-empty">No expenses this month.</div>'; return; }
+
+  const sub = document.createElement("div");
+  sub.className = "hist-sub";
+  sub.textContent = "All expenses";
+  list.appendChild(sub);
+
   let lastDay = null;
-  data.forEach((r) => {
+  rows.forEach((r) => {
     const d = new Date(r.created_at);
     const key = d.toDateString();
     if (key !== lastDay) {
@@ -229,7 +369,6 @@ async function loadHistory() {
 }
 
 function renderItem(r) {
-  const cents = Math.round((r.amount || 0) * 100);
   const el = document.createElement("div");
   el.className = "hist-item";
 
@@ -251,7 +390,7 @@ function renderItem(r) {
 
   const amt = document.createElement("div");
   amt.className = "hi-amount";
-  amt.textContent = formatEuro(cents);
+  amt.textContent = formatEuro(Number(r.amount) || 0);
   el.appendChild(amt);
 
   const del = document.createElement("button");
@@ -262,7 +401,6 @@ function renderItem(r) {
     const { error } = await sb.from("expenses").delete().eq("id", r.id);
     if (error) { toast(error.message, true); return; }
     haptic();
-    el.remove();
     loadHistory();
   });
   el.appendChild(del);
@@ -423,7 +561,7 @@ function wire() {
 
   // amount -> title
   $("#amount-next").addEventListener("click", () => {
-    if (entry.cents === 0) { toast("Enter an amount", true); return; }
+    if (entry.amount === 0) { toast("Enter an amount", true); return; }
     syncMiniAmount();
     showStep("step-title");
     setTimeout(() => $("#title-input").focus(), 60);
@@ -436,7 +574,16 @@ function wire() {
   $("#title-back").addEventListener("click", () => showStep("step-amount"));
 
   // cats
-  $("#cats-next").addEventListener("click", () => { syncMiniAmount(); showStep("step-kind"); });
+  $("#cat-custom").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); addCustomCategory(e.target.value); }
+  });
+  $("#cat-custom").addEventListener("blur", (e) => {
+    if (e.target.value.trim()) addCustomCategory(e.target.value);
+  });
+  $("#cats-next").addEventListener("click", () => {
+    if (!$("#cat-custom-wrap").hidden) addCustomCategory($("#cat-custom").value);
+    syncMiniAmount(); showStep("step-kind");
+  });
   $("#cats-back").addEventListener("click", () => showStep("step-title"));
 
   // kind
@@ -448,8 +595,10 @@ function wire() {
 
   // nav
   $("#sign-out").addEventListener("click", signOut);
-  $("#go-history").addEventListener("click", () => { showScreen("screen-history"); loadHistory(); });
+  $("#go-history").addEventListener("click", openHistory);
   $("#hist-back").addEventListener("click", () => showScreen("screen-entry"));
+  $("#month-prev").addEventListener("click", () => changeMonth(-1));
+  $("#month-next").addEventListener("click", () => changeMonth(1));
 }
 
 function goToCats() {
