@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
+  <title>Saver</title>
+  <meta name="description" content="The fastest, most minimal euro expense tracker." />
+
+  <!-- PWA / iOS home-screen -->
+  <link rel="manifest" href="manifest.webmanifest" />
+  <meta name="theme-color" content="#0b0b0f" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Saver" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png" />
+
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <!-- Loading -->
+  <section id="screen-loading" class="screen active">
+    <div class="spinner"></div>
+  </section>
+
+  <!-- First-run: Supabase config -->
+  <section id="screen-config" class="screen pad">
+    <div class="stack">
+      <h1 class="title">Connect Supabase</h1>
+      <p class="hint">Paste your project URL and anon key once. Stored only on this device.</p>
+      <input id="cfg-url" class="field" type="url" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://xxxx.supabase.co" />
+      <input id="cfg-key" class="field" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="anon public key" />
+      <button id="cfg-save" class="btn primary">Continue</button>
+      <p id="cfg-error" class="error" hidden></p>
+    </div>
+  </section>
+
+  <!-- Auth: magic link -->
+  <section id="screen-auth" class="screen pad">
+    <div class="stack">
+      <div class="brand">€</div>
+      <h1 class="title">Saver</h1>
+      <p class="hint">Sign in once. Enter your email and tap the link we send you.</p>
+      <input id="auth-email" class="field" type="email" inputmode="email" autocomplete="email" autocapitalize="off" spellcheck="false" placeholder="you@email.com" />
+      <button id="auth-send" class="btn primary">Send magic link</button>
+      <p id="auth-msg" class="hint center" hidden></p>
+      <button id="cfg-reset" class="btn ghost small">Change Supabase settings</button>
+    </div>
+  </section>
+
+  <!-- Entry flow -->
+  <section id="screen-entry" class="screen">
+    <!-- top bar: today's context + history -->
+    <header class="topbar">
+      <button id="go-history" class="icon-btn" aria-label="History">≡</button>
+      <span id="progress" class="progress"></span>
+      <button id="sign-out" class="icon-btn" aria-label="Sign out">⏻</button>
+    </header>
+
+    <!-- Step 1: amount -->
+    <div id="step-amount" class="step active">
+      <div class="amount-wrap">
+        <div id="amount" class="amount">€0.00</div>
+      </div>
+      <div class="keypad">
+        <button class="key" data-k="1">1</button>
+        <button class="key" data-k="2">2</button>
+        <button class="key" data-k="3">3</button>
+        <button class="key" data-k="4">4</button>
+        <button class="key" data-k="5">5</button>
+        <button class="key" data-k="6">6</button>
+        <button class="key" data-k="7">7</button>
+        <button class="key" data-k="8">8</button>
+        <button class="key" data-k="9">9</button>
+        <button class="key subtle" data-k="clear">C</button>
+        <button class="key" data-k="0">0</button>
+        <button class="key subtle" data-k="back">⌫</button>
+      </div>
+      <button id="amount-next" class="btn primary wide">Next</button>
+    </div>
+
+    <!-- Step 2: title -->
+    <div id="step-title" class="step">
+      <div class="step-head">
+        <div id="title-amount" class="mini-amount"></div>
+        <p class="hint">What was it?</p>
+      </div>
+      <input id="title-input" class="field big" type="text" enterkeyhint="next" autocomplete="off" autocapitalize="sentences" placeholder="Title" />
+      <div class="row">
+        <button id="title-back" class="btn ghost">Back</button>
+        <button id="title-next" class="btn primary grow">Next</button>
+      </div>
+    </div>
+
+    <!-- Step 3: categories -->
+    <div id="step-cats" class="step">
+      <div class="step-head">
+        <div id="cats-amount" class="mini-amount"></div>
+        <p class="hint">Category</p>
+      </div>
+      <div id="cats" class="chips"></div>
+      <div class="row">
+        <button id="cats-back" class="btn ghost">Back</button>
+        <button id="cats-next" class="btn primary grow">Next</button>
+      </div>
+    </div>
+
+    <!-- Step 4: need / want -->
+    <div id="step-kind" class="step">
+      <div class="step-head">
+        <div id="kind-amount" class="mini-amount"></div>
+        <p class="hint">Need or want?</p>
+      </div>
+      <div class="kind-grid">
+        <button class="kind-btn need" data-kind="need"><span class="k-emoji">✓</span>Need</button>
+        <button class="kind-btn want" data-kind="want"><span class="k-emoji">✦</span>Want</button>
+      </div>
+      <div class="row">
+        <button id="kind-back" class="btn ghost">Back</button>
+      </div>
+    </div>
+
+    <!-- Saved confirmation -->
+    <div id="step-saved" class="step saved">
+      <div class="check">✓</div>
+      <div id="saved-amount" class="saved-amount"></div>
+      <div class="saved-sub">Saved</div>
+    </div>
+  </section>
+
+  <!-- History -->
+  <section id="screen-history" class="screen">
+    <header class="topbar">
+      <button id="hist-back" class="icon-btn" aria-label="Back">‹</button>
+      <span class="progress">History</span>
+      <span class="icon-btn" aria-hidden="true"></span>
+    </header>
+    <div class="hist-total">
+      <div class="hist-total-label" id="hist-month-label"></div>
+      <div class="hist-total-amount" id="hist-total"></div>
+    </div>
+    <div id="hist-list" class="hist-list"></div>
+  </section>
+
+  <!-- Toast -->
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
