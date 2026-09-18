@@ -8,8 +8,12 @@ create table if not exists public.expenses (
   title       text,
   categories  text[] not null default '{}',
   kind        text check (kind in ('need', 'want')),
+  split       boolean not null default false,
   created_at  timestamptz not null default now()
 );
+
+-- Migration for tables created before "split" existed (safe to run anytime):
+alter table public.expenses add column if not exists split boolean not null default false;
 
 -- Fast lookups for the history screen (newest first, per user).
 create index if not exists expenses_user_created_idx
