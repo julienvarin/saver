@@ -178,8 +178,30 @@ body {
   color: #fff;
 }
 
+/* split toggle */
+.split-toggle {
+  align-self: center;
+  margin: 0 0 16px;
+  border: 1px solid #2a2a35;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 15px;
+  font-weight: 600;
+  padding: 11px 20px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all .12s ease;
+}
+.split-toggle:active { transform: scale(0.97); }
+.split-toggle.active {
+  background: linear-gradient(160deg, var(--accent), var(--accent-2));
+  border-color: transparent;
+  color: #fff;
+}
+
 /* need / want */
 .kind-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; flex: 1; align-content: center; }
+.kind-btn.selected { border-color: var(--accent); background: var(--surface-2); }
 .kind-btn {
   border: 1px solid #2a2a35;
   background: var(--surface);
@@ -263,13 +285,17 @@ body {
 .hi-main { flex: 1; min-width: 0; }
 .hi-title { font-size: 16px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hi-cats { color: var(--muted); font-size: 13px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.hi-amount { font-size: 17px; font-weight: 600; }
-.hi-del {
-  border: none; background: transparent; color: var(--danger);
-  font-size: 20px; padding: 6px 4px 6px 10px; cursor: pointer;
-  max-width: 0; overflow: hidden; opacity: 0; transition: all .18s ease;
+.hi-main { cursor: pointer; }
+.hi-amount { font-size: 17px; font-weight: 600; flex: 0 0 auto; }
+.hi-act {
+  border: none; background: var(--surface-2); color: var(--muted);
+  width: 34px; height: 34px; border-radius: 10px; font-size: 15px;
+  cursor: pointer; flex: 0 0 auto; display: grid; place-items: center;
+  transition: transform .08s ease, background .12s ease, color .12s ease;
 }
-.hist-item.open .hi-del { max-width: 40px; opacity: 1; }
+.hi-act:active { transform: scale(0.9); }
+.hi-act.split.active { background: rgba(52, 211, 153, .18); color: var(--need); font-weight: 700; }
+.hi-act.del { color: var(--danger); }
 .hist-empty { text-align: center; color: var(--muted); padding: 60px 24px; font-size: 15px; }
 
 /* ---- spinner ---- */

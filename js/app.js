@@ -70,6 +70,8 @@ const entry = {
   title: "",
   categories: [],
   kind: null,
+  split: false,
+  editId: null, // set when editing an existing expense
 };
 
 function resetEntry() {
@@ -77,9 +79,13 @@ function resetEntry() {
   entry.title = "";
   entry.categories = [];
   entry.kind = null;
+  entry.split = false;
+  entry.editId = null;
   renderAmount();
   $("#title-input").value = "";
   resetChips();
+  updateKindUI();
+  updateSplitUI();
 }
 
 function renderAmount() {
@@ -96,7 +102,28 @@ function updateProgress(stepId) {
     "step-kind": "Need / Want",
     "step-saved": "",
   };
-  $("#progress").textContent = map[stepId] || "";
+  let label = map[stepId] || "";
+  if (entry.editId && label) label = "Edit · " + label;
+  $("#progress").textContent = label;
+}
+
+/* need/want + split step UI */
+function updateKindUI() {
+  $$(".kind-btn").forEach((b) => b.classList.toggle("selected", entry.kind === b.dataset.kind));
+}
+function updateSplitUI() {
+  const b = $("#split-toggle");
+  if (b) b.classList.toggle("active", !!entry.split);
+}
+function toggleSplit() {
+  entry.split = !entry.split;
+  haptic();
+  updateSplitUI();
+}
+function enterKindStep() {
+  updateKindUI();
+  updateSplitUI();
+  showStep("step-kind");
 }
 
 function syncMiniAmount() {
@@ -165,14 +192,9 @@ function buildChips() {
   });
 }
 
-// Tapping "+ Other" reveals an input; the typed name becomes a new selected chip.
-function addCustomCategory(rawName) {
-  const name = (rawName || "").trim();
-  const w = $("#cat-custom-wrap");
-  w.hidden = true;
-  $("#cat-custom").value = "";
+// Create a selected custom-category chip (used by the input and when editing).
+function addCustomCategoryDirect(name) {
   if (!name || entry.categories.indexOf(name) >= 0) return;
-
   const b = makeChip(name);
   b.classList.add("selected");
   b.dataset.custom = "1";
@@ -184,7 +206,29 @@ function addCustomCategory(rawName) {
   });
   $("#cats").insertBefore(b, otherChip);
   entry.categories.push(name);
+}
+
+// Tapping "+ Other" reveals an input; the typed name becomes a new selected chip.
+function addCustomCategory(rawName) {
+  const name = (rawName || "").trim();
+  const w = $("#cat-custom-wrap");
+  w.hidden = true;
+  $("#cat-custom").value = "";
+  if (!name) return;
+  addCustomCategoryDirect(name);
   haptic();
+}
+
+// Pre-select chips for an existing expense's categories (used when editing).
+function applyCategories(cats) {
+  (cats || []).forEach((name) => {
+    if (CATEGORIES.indexOf(name) >= 0 && name !== "Other") {
+      const chip = $$("#cats .chip").find((c) => !c.dataset.custom && !c.classList.contains("add") && c.textContent === name);
+      if (chip) { chip.classList.add("selected"); if (entry.categories.indexOf(name) < 0) entry.categories.push(name); }
+    } else {
+      addCustomCategoryDirect(name);
+    }
+  });
 }
 
 function resetChips() {
@@ -209,14 +253,20 @@ async function saveExpense() {
     title: entry.title || null,
     categories: entry.categories,
     kind: entry.kind,
+    split: entry.split,
   };
+
+  const editing = !!entry.editId;
 
   // optimistic confirmation
   $("#saved-amount").textContent = formatEuro(entry.amount);
   showStep("step-saved");
   haptic();
 
-  const { error } = await sb.from("expenses").insert(record);
+  const q = editing
+    ? sb.from("expenses").update(record).eq("id", entry.editId)
+    : sb.from("expenses").insert(record);
+  const { error } = await q;
   if (error) {
     console.error(error);
     toast("Couldn't save: " + error.message, true);
@@ -226,7 +276,12 @@ async function saveExpense() {
 
   setTimeout(() => {
     resetEntry();
-    showStep("step-amount");
+    if (editing) {
+      showScreen("screen-history");
+      loadHistory();
+    } else {
+      showStep("step-amount");
+    }
   }, 900);
 }
 
@@ -257,6 +312,7 @@ function dayLabel(d) {
 }
 
 function openHistory() {
+  if (entry.editId) resetEntry(); // cancel any in-progress edit
   statsMonth = new Date();
   statsMonth.setDate(1);
   showScreen("screen-history");
@@ -270,6 +326,28 @@ function changeMonth(delta) {
   statsMonth = d;
   haptic();
   loadHistory();
+}
+
+// A split expense counts as half (your share) in every total.
+function effectiveAmount(r) {
+  const a = Number(r.amount) || 0;
+  return r.split ? a / 2 : a;
+}
+
+// Open an existing expense in the entry flow, pre-filled and editable.
+function openEdit(r) {
+  resetEntry();
+  entry.editId = r.id;
+  entry.amount = Math.round(Number(r.amount) || 0);
+  entry.title = r.title || "";
+  entry.kind = r.kind || null;
+  entry.split = !!r.split;
+  applyCategories(r.categories || []);
+  renderAmount();
+  $("#title-input").value = entry.title;
+  syncMiniAmount();
+  showScreen("screen-entry");
+  showStep("step-amount");
 }
 
 async function loadHistory() {
@@ -299,7 +377,7 @@ function renderStats(rows) {
   let total = 0, need = 0, want = 0;
   const byCat = {};
   rows.forEach((r) => {
-    const a = Number(r.amount) || 0;
+    const a = effectiveAmount(r); // split -> your half
     total += a;
     if (r.kind === "need") need += a;
     else if (r.kind === "want") want += a;
@@ -376,6 +454,7 @@ function renderItem(r) {
   dot.className = "hi-kind " + (r.kind || "");
   el.appendChild(dot);
 
+  // main area: tap to edit
   const main = document.createElement("div");
   main.className = "hi-main";
   const title = document.createElement("div");
@@ -383,19 +462,36 @@ function renderItem(r) {
   title.textContent = r.title || "Untitled";
   const cats = document.createElement("div");
   cats.className = "hi-cats";
-  cats.textContent = (r.categories || []).join(" · ") || "—";
+  const catText = (r.categories || []).join(" · ") || "—";
+  cats.textContent = r.split ? "½ split · " + catText : catText;
   main.appendChild(title);
   main.appendChild(cats);
+  main.addEventListener("click", () => openEdit(r));
   el.appendChild(main);
 
   const amt = document.createElement("div");
   amt.className = "hi-amount";
-  amt.textContent = formatEuro(Number(r.amount) || 0);
+  amt.textContent = formatEuro(effectiveAmount(r));
   el.appendChild(amt);
 
+  // quick split toggle
+  const split = document.createElement("button");
+  split.className = "hi-act split" + (r.split ? " active" : "");
+  split.textContent = "½";
+  split.setAttribute("aria-label", "Split with partner");
+  split.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    const { error } = await sb.from("expenses").update({ split: !r.split }).eq("id", r.id);
+    if (error) { toast(error.message, true); return; }
+    haptic();
+    loadHistory();
+  });
+  el.appendChild(split);
+
   const del = document.createElement("button");
-  del.className = "hi-del";
+  del.className = "hi-act del";
   del.textContent = "🗑";
+  del.setAttribute("aria-label", "Delete");
   del.addEventListener("click", async (e) => {
     e.stopPropagation();
     const { error } = await sb.from("expenses").delete().eq("id", r.id);
@@ -404,12 +500,6 @@ function renderItem(r) {
     loadHistory();
   });
   el.appendChild(del);
-
-  // tap row to reveal delete
-  el.addEventListener("click", () => {
-    $$(".hist-item.open").forEach((o) => { if (o !== el) o.classList.remove("open"); });
-    el.classList.toggle("open");
-  });
 
   return el;
 }
@@ -582,11 +672,12 @@ function wire() {
   });
   $("#cats-next").addEventListener("click", () => {
     if (!$("#cat-custom-wrap").hidden) addCustomCategory($("#cat-custom").value);
-    syncMiniAmount(); showStep("step-kind");
+    syncMiniAmount(); enterKindStep();
   });
   $("#cats-back").addEventListener("click", () => showStep("step-title"));
 
-  // kind
+  // kind + split
+  $("#split-toggle").addEventListener("click", toggleSplit);
   $$(".kind-btn").forEach((b) => b.addEventListener("click", () => {
     entry.kind = b.dataset.kind;
     saveExpense();
