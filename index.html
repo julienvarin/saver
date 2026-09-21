@@ -117,7 +117,11 @@
         <div id="kind-amount" class="mini-amount"></div>
         <p class="hint">Need or want?</p>
       </div>
-      <button id="split-toggle" class="split-toggle" type="button">🤝 Split with partner</button>
+      <div class="flags">
+        <button id="split-toggle" class="pill" type="button">🤝 Split</button>
+        <button id="reimb-toggle" class="pill" type="button">↩︎ Reimbursable</button>
+        <button id="received-toggle" class="pill sub" type="button" hidden>✓ Received back</button>
+      </div>
       <div class="kind-grid">
         <button class="kind-btn need" data-kind="need"><span class="k-emoji">✓</span>Need</button>
         <button class="kind-btn want" data-kind="want"><span class="k-emoji">✦</span>Want</button>
@@ -153,6 +157,11 @@
       <div class="stat-total">
         <div class="stat-total-label">Total spent</div>
         <div id="stat-total" class="stat-total-amount">€0</div>
+      </div>
+
+      <div id="reimb-pending" class="reimb-pending" hidden>
+        <span>↩︎ Pending reimbursement</span>
+        <b id="reimb-pending-amt">€0</b>
       </div>
 
       <div class="nw">

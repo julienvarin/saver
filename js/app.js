@@ -71,6 +71,8 @@ const entry = {
   categories: [],
   kind: null,
   split: false,
+  reimbursable: false,
+  reimbursed: false,
   editId: null, // set when editing an existing expense
 };
 
@@ -80,12 +82,14 @@ function resetEntry() {
   entry.categories = [];
   entry.kind = null;
   entry.split = false;
+  entry.reimbursable = false;
+  entry.reimbursed = false;
   entry.editId = null;
   renderAmount();
   $("#title-input").value = "";
   resetChips();
   updateKindUI();
-  updateSplitUI();
+  updateFlagsUI();
 }
 
 function renderAmount() {
@@ -107,22 +111,32 @@ function updateProgress(stepId) {
   $("#progress").textContent = label;
 }
 
-/* need/want + split step UI */
+/* need/want + flag toggles (split / reimbursable / received) */
 function updateKindUI() {
   $$(".kind-btn").forEach((b) => b.classList.toggle("selected", entry.kind === b.dataset.kind));
 }
-function updateSplitUI() {
-  const b = $("#split-toggle");
-  if (b) b.classList.toggle("active", !!entry.split);
+function updateFlagsUI() {
+  const s = $("#split-toggle");
+  if (s) s.classList.toggle("active", !!entry.split);
+  const r = $("#reimb-toggle");
+  if (r) r.classList.toggle("active", !!entry.reimbursable);
+  const rec = $("#received-toggle");
+  if (rec) {
+    rec.hidden = !entry.reimbursable;      // only relevant when reimbursable
+    rec.classList.toggle("active", !!entry.reimbursed);
+  }
 }
-function toggleSplit() {
-  entry.split = !entry.split;
+function toggleSplit() { entry.split = !entry.split; haptic(); updateFlagsUI(); }
+function toggleReimb() {
+  entry.reimbursable = !entry.reimbursable;
+  if (!entry.reimbursable) entry.reimbursed = false; // received only makes sense if reimbursable
   haptic();
-  updateSplitUI();
+  updateFlagsUI();
 }
+function toggleReceived() { entry.reimbursed = !entry.reimbursed; haptic(); updateFlagsUI(); }
 function enterKindStep() {
   updateKindUI();
-  updateSplitUI();
+  updateFlagsUI();
   showStep("step-kind");
 }
 
@@ -254,6 +268,8 @@ async function saveExpense() {
     categories: entry.categories,
     kind: entry.kind,
     split: entry.split,
+    reimbursable: entry.reimbursable,
+    reimbursed: entry.reimbursable ? entry.reimbursed : false,
   };
 
   const editing = !!entry.editId;
@@ -328,10 +344,18 @@ function changeMonth(delta) {
   loadHistory();
 }
 
-// A split expense counts as half (your share) in every total.
-function effectiveAmount(r) {
+// What you actually paid out of pocket (a split expense is your half).
+function paidAmount(r) {
   const a = Number(r.amount) || 0;
   return r.split ? a / 2 : a;
+}
+// What counts toward your spend: reimbursable money isn't really yours.
+function netAmount(r) {
+  return r.reimbursable ? 0 : paidAmount(r);
+}
+// Money still owed back to you (full amount fronted, until marked received).
+function pendingReimb(r) {
+  return (r.reimbursable && !r.reimbursed) ? (Number(r.amount) || 0) : 0;
 }
 
 // Open an existing expense in the entry flow, pre-filled and editable.
@@ -342,6 +366,8 @@ function openEdit(r) {
   entry.title = r.title || "";
   entry.kind = r.kind || null;
   entry.split = !!r.split;
+  entry.reimbursable = !!r.reimbursable;
+  entry.reimbursed = !!r.reimbursed;
   applyCategories(r.categories || []);
   renderAmount();
   $("#title-input").value = entry.title;
@@ -374,18 +400,30 @@ async function loadHistory() {
 }
 
 function renderStats(rows) {
-  let total = 0, need = 0, want = 0;
+  let total = 0, need = 0, want = 0, pending = 0;
   const byCat = {};
   rows.forEach((r) => {
-    const a = effectiveAmount(r); // split -> your half
+    const a = netAmount(r); // split -> your half; reimbursable -> 0
     total += a;
+    pending += pendingReimb(r);
     if (r.kind === "need") need += a;
     else if (r.kind === "want") want += a;
-    const cats = (r.categories && r.categories.length) ? r.categories : ["Uncategorised"];
-    cats.forEach((c) => { byCat[c] = (byCat[c] || 0) + a; });
+    if (a > 0) {
+      const cats = (r.categories && r.categories.length) ? r.categories : ["Uncategorised"];
+      cats.forEach((c) => { byCat[c] = (byCat[c] || 0) + a; });
+    }
   });
 
   $("#stat-total").textContent = formatEuro(total);
+
+  // pending reimbursement line (money still to get back)
+  const pw = $("#reimb-pending");
+  if (pending > 0) {
+    pw.hidden = false;
+    $("#reimb-pending-amt").textContent = formatEuro(pending);
+  } else {
+    pw.hidden = true;
+  }
 
   const nwTotal = need + want;
   const needPct = nwTotal ? Math.round((need / nwTotal) * 100) : 0;
@@ -419,6 +457,13 @@ function renderStats(rows) {
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (m) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
+}
+
+function makeBadge(text, cls) {
+  const b = document.createElement("span");
+  b.className = "badge " + cls;
+  b.textContent = text;
+  return b;
 }
 
 function renderList(rows) {
@@ -460,18 +505,28 @@ function renderItem(r) {
   const title = document.createElement("div");
   title.className = "hi-title";
   title.textContent = r.title || "Untitled";
-  const cats = document.createElement("div");
-  cats.className = "hi-cats";
-  const catText = (r.categories || []).join(" · ") || "—";
-  cats.textContent = r.split ? "½ split · " + catText : catText;
+
+  const sub = document.createElement("div");
+  sub.className = "hi-sub";
+  if (r.split) sub.appendChild(makeBadge("½ split", "split"));
+  if (r.reimbursable) {
+    sub.appendChild(r.reimbursed
+      ? makeBadge("↩︎ back", "reimb-done")
+      : makeBadge("↩︎ pending", "reimb-pending"));
+  }
+  const catSpan = document.createElement("span");
+  catSpan.className = "cats";
+  catSpan.textContent = (r.categories || []).join(" · ") || "—";
+  sub.appendChild(catSpan);
+
   main.appendChild(title);
-  main.appendChild(cats);
+  main.appendChild(sub);
   main.addEventListener("click", () => openEdit(r));
   el.appendChild(main);
 
   const amt = document.createElement("div");
-  amt.className = "hi-amount";
-  amt.textContent = formatEuro(effectiveAmount(r));
+  amt.className = "hi-amount" + (r.reimbursable ? " reimb" : "");
+  amt.textContent = formatEuro(paidAmount(r));
   el.appendChild(amt);
 
   // quick split toggle
@@ -676,8 +731,10 @@ function wire() {
   });
   $("#cats-back").addEventListener("click", () => showStep("step-title"));
 
-  // kind + split
+  // kind + flags
   $("#split-toggle").addEventListener("click", toggleSplit);
+  $("#reimb-toggle").addEventListener("click", toggleReimb);
+  $("#received-toggle").addEventListener("click", toggleReceived);
   $$(".kind-btn").forEach((b) => b.addEventListener("click", () => {
     entry.kind = b.dataset.kind;
     saveExpense();
