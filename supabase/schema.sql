@@ -6,14 +6,18 @@ create table if not exists public.expenses (
   user_id     uuid not null references auth.users (id) on delete cascade default auth.uid(),
   amount      numeric(12, 2) not null check (amount >= 0),
   title       text,
-  categories  text[] not null default '{}',
-  kind        text check (kind in ('need', 'want')),
-  split       boolean not null default false,
-  created_at  timestamptz not null default now()
+  categories    text[] not null default '{}',
+  kind          text check (kind in ('need', 'want')),
+  split         boolean not null default false,
+  reimbursable  boolean not null default false,
+  reimbursed    boolean not null default false,
+  created_at    timestamptz not null default now()
 );
 
--- Migration for tables created before "split" existed (safe to run anytime):
-alter table public.expenses add column if not exists split boolean not null default false;
+-- Migrations (safe to run anytime on an existing table):
+alter table public.expenses add column if not exists split        boolean not null default false;
+alter table public.expenses add column if not exists reimbursable boolean not null default false;
+alter table public.expenses add column if not exists reimbursed   boolean not null default false;
 
 -- Fast lookups for the history screen (newest first, per user).
 create index if not exists expenses_user_created_idx
