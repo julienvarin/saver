@@ -155,8 +155,10 @@
 
     <div id="hist-scroll" class="hist-scroll">
       <div class="stat-total">
-        <div class="stat-total-label">Total spent</div>
+        <div class="stat-total-label" id="stat-label">Total spent</div>
         <div id="stat-total" class="stat-total-amount">€0</div>
+        <div id="stat-perday" class="stat-perday">€0 / day</div>
+        <button id="stat-clear" class="stat-clear" type="button" hidden>✕ Clear filter</button>
       </div>
 
       <div id="reimb-pending" class="reimb-pending" hidden>
@@ -170,8 +172,8 @@
           <div id="nw-want" class="nw-seg want" style="width:0"></div>
         </div>
         <div class="nw-legend">
-          <div class="nw-item"><span class="dot need"></span>Needs&nbsp;<b id="nw-need-amt">€0</b>&nbsp;<span class="pct" id="nw-need-pct"></span></div>
-          <div class="nw-item"><span class="dot want"></span>Wants&nbsp;<b id="nw-want-amt">€0</b>&nbsp;<span class="pct" id="nw-want-pct"></span></div>
+          <button id="nw-need-item" class="nw-item" type="button"><span class="dot need"></span>Needs&nbsp;<b id="nw-need-amt">€0</b>&nbsp;<span class="pct" id="nw-need-pct"></span></button>
+          <button id="nw-want-item" class="nw-item" type="button"><span class="dot want"></span>Wants&nbsp;<b id="nw-want-amt">€0</b>&nbsp;<span class="pct" id="nw-want-pct"></span></button>
         </div>
       </div>
 

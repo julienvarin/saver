@@ -304,7 +304,38 @@ async function saveExpense() {
 /* ------------------------------------------------------------------ */
 /*  History / stats                                                    */
 /* ------------------------------------------------------------------ */
-let statsMonth = null; // Date at the first day of the shown month
+let statsMonth = null;                    // Date at the first day of the shown month
+let statsRows = [];                        // cached rows for the shown month
+let statsFilter = { type: null, value: null }; // null | 'kind'|'need'/'want' | 'category'|name
+
+function matchesFilter(r) {
+  if (!statsFilter.type) return true;
+  if (statsFilter.type === "kind") return r.kind === statsFilter.value;
+  if (statsFilter.type === "category") return (r.categories || []).includes(statsFilter.value);
+  return true;
+}
+
+// Toggle a filter (tapping the active one clears it), then re-render in place.
+function setFilter(type, value) {
+  if (statsFilter.type === type && statsFilter.value === value) {
+    statsFilter = { type: null, value: null };
+  } else {
+    statsFilter = { type, value };
+  }
+  haptic();
+  renderStats(statsRows);
+  renderList(statsRows);
+}
+
+// Days counted for the per-day average: elapsed days for the current month,
+// full length for a past month.
+function daysElapsed(monthDate) {
+  const now = new Date();
+  if (monthDate.getFullYear() === now.getFullYear() && monthDate.getMonth() === now.getMonth()) {
+    return Math.max(1, now.getDate());
+  }
+  return new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0).getDate();
+}
 
 function monthRange(d) {
   return {
@@ -331,6 +362,7 @@ function openHistory() {
   if (entry.editId) resetEntry(); // cancel any in-progress edit
   statsMonth = new Date();
   statsMonth.setDate(1);
+  statsFilter = { type: null, value: null };
   showScreen("screen-history");
   loadHistory();
 }
@@ -340,6 +372,7 @@ function changeMonth(delta) {
   d.setMonth(d.getMonth() + delta);
   if (delta > 0 && d > new Date()) return; // don't go past the current month
   statsMonth = d;
+  statsFilter = { type: null, value: null };
   haptic();
   loadHistory();
 }
@@ -395,28 +428,37 @@ async function loadHistory() {
 
   if (error) { list.innerHTML = '<div class="hist-empty">Error loading.</div>'; toast(error.message, true); return; }
 
-  renderStats(data || []);
-  renderList(data || []);
+  statsRows = data || [];
+  renderStats(statsRows);
+  renderList(statsRows);
 }
 
 function renderStats(rows) {
+  const filtered = rows.filter(matchesFilter);
+  const kindFilter = statsFilter.type === "kind";
+  const catFilter = statsFilter.type === "category";
+
+  // headline total + per-day, over the filtered set
   let total = 0, need = 0, want = 0, pending = 0;
-  const byCat = {};
-  rows.forEach((r) => {
-    const a = netAmount(r); // split -> your half; reimbursable -> 0
-    total += a;
-    pending += pendingReimb(r);
-    if (r.kind === "need") need += a;
-    else if (r.kind === "want") want += a;
-    if (a > 0) {
-      const cats = (r.categories && r.categories.length) ? r.categories : ["Uncategorised"];
-      cats.forEach((c) => { byCat[c] = (byCat[c] || 0) + a; });
-    }
+  filtered.forEach((r) => {
+    total += netAmount(r);
+    if (r.kind === "need") need += netAmount(r);
+    else if (r.kind === "want") want += netAmount(r);
   });
+  rows.forEach((r) => { pending += pendingReimb(r); }); // pending ignores filter
 
+  const perDay = total / daysElapsed(statsMonth);
   $("#stat-total").textContent = formatEuro(total);
+  $("#stat-perday").textContent = formatEuro(perDay) + " / day";
 
-  // pending reimbursement line (money still to get back)
+  // label + clear affordance reflect the active filter
+  const label = !statsFilter.type ? "Total spent"
+    : statsFilter.type === "kind" ? (statsFilter.value === "need" ? "Needs" : "Wants")
+    : statsFilter.value;
+  $("#stat-label").textContent = label;
+  $("#stat-clear").hidden = !statsFilter.type;
+
+  // pending reimbursement line (money still to get back) — not filtered
   const pw = $("#reimb-pending");
   if (pending > 0) {
     pw.hidden = false;
@@ -425,6 +467,7 @@ function renderStats(rows) {
     pw.hidden = true;
   }
 
+  // needs vs wants — reflects the filtered set; clickable to filter by kind
   const nwTotal = need + want;
   const needPct = nwTotal ? Math.round((need / nwTotal) * 100) : 0;
   $("#nw-need").style.width = (nwTotal ? (need / nwTotal) * 100 : 0) + "%";
@@ -433,6 +476,22 @@ function renderStats(rows) {
   $("#nw-want-amt").textContent = formatEuro(want);
   $("#nw-need-pct").textContent = nwTotal ? needPct + "%" : "";
   $("#nw-want-pct").textContent = nwTotal ? (100 - needPct) + "%" : "";
+  const nItem = $("#nw-need-item"), wItem = $("#nw-want-item");
+  nItem.classList.toggle("active", kindFilter && statsFilter.value === "need");
+  wItem.classList.toggle("active", kindFilter && statsFilter.value === "want");
+  nItem.classList.toggle("dim", kindFilter && statsFilter.value !== "need");
+  wItem.classList.toggle("dim", kindFilter && statsFilter.value !== "want");
+
+  // category breakdown — scoped by an active kind filter, but not by a
+  // category filter (so you can still switch between categories).
+  const catScope = kindFilter ? rows.filter((r) => r.kind === statsFilter.value) : rows;
+  const byCat = {};
+  catScope.forEach((r) => {
+    const a = netAmount(r);
+    if (a <= 0) return;
+    const cats = (r.categories && r.categories.length) ? r.categories : ["Uncategorised"];
+    cats.forEach((c) => { byCat[c] = (byCat[c] || 0) + a; });
+  });
 
   const wrap = $("#cat-breakdown");
   wrap.innerHTML = "";
@@ -446,9 +505,12 @@ function renderStats(rows) {
     cats.forEach((c) => {
       const row = document.createElement("div");
       row.className = "cat-row";
+      if (catFilter && statsFilter.value === c) row.classList.add("active");
+      else if (catFilter) row.classList.add("dim");
       row.innerHTML =
         '<div class="cat-row-top"><span>' + escapeHtml(c) + "</span><b>" + formatEuro(byCat[c]) + "</b></div>" +
         '<div class="cat-track"><div class="cat-fill" style="width:' + ((byCat[c] / max) * 100) + '%"></div></div>';
+      row.addEventListener("click", () => setFilter("category", c));
       wrap.appendChild(row);
     });
   }
@@ -469,15 +531,16 @@ function makeBadge(text, cls) {
 function renderList(rows) {
   const list = $("#hist-list");
   list.innerHTML = "";
-  if (!rows.length) { list.innerHTML = '<div class="hist-empty">No expenses this month.</div>'; return; }
+  const shown = rows.filter(matchesFilter);
+  if (!shown.length) { list.innerHTML = '<div class="hist-empty">No expenses here.</div>'; return; }
 
   const sub = document.createElement("div");
   sub.className = "hist-sub";
-  sub.textContent = "All expenses";
+  sub.textContent = statsFilter.type ? (shown.length + " expense" + (shown.length > 1 ? "s" : "")) : "All expenses";
   list.appendChild(sub);
 
   let lastDay = null;
-  rows.forEach((r) => {
+  shown.forEach((r) => {
     const d = new Date(r.created_at);
     const key = d.toDateString();
     if (key !== lastDay) {
@@ -747,6 +810,11 @@ function wire() {
   $("#hist-back").addEventListener("click", () => showScreen("screen-entry"));
   $("#month-prev").addEventListener("click", () => changeMonth(-1));
   $("#month-next").addEventListener("click", () => changeMonth(1));
+
+  // stats filters
+  $("#nw-need-item").addEventListener("click", () => setFilter("kind", "need"));
+  $("#nw-want-item").addEventListener("click", () => setFilter("kind", "want"));
+  $("#stat-clear").addEventListener("click", () => setFilter(statsFilter.type, statsFilter.value));
 }
 
 function goToCats() {
