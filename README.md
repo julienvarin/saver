@@ -67,6 +67,9 @@ that publishes the site on every push to `main`.
 
 ## Customising
 
+- **Month start (payday):** in Stats, tap the date range under the month name to set the
+  day your month starts (default 26 → "October" = 26 Sep – 25 Oct), or move just one month's
+  start when your salary lands on a different day. Stored on the device.
 - **Categories:** edit the `CATEGORIES` array at the top of [`js/app.js`](js/app.js).
 - **Colours / look:** the CSS variables at the top of [`css/style.css`](css/style.css).
 - **App icon:** re-run `python3 scripts/gen_icons.py` after tweaking the colours in that script.

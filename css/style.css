@@ -239,7 +239,25 @@ body {
 
 /* month navigator */
 .month-nav { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 2px 12px 6px; }
-.month-label { min-width: 190px; text-align: center; font-size: 18px; font-weight: 600; }
+.month-label-wrap { min-width: 190px; display: flex; flex-direction: column; align-items: center; }
+.month-label { text-align: center; font-size: 18px; font-weight: 600; }
+.month-range {
+  border: 0; background: none; color: var(--muted); font: inherit; font-size: 13px;
+  padding: 2px 8px; margin-top: 2px; border-radius: 8px; cursor: pointer;
+}
+.month-range:active { background: var(--surface); }
+
+/* salary-cycle settings */
+.cutoff-panel {
+  margin: 4px 16px 10px; padding: 14px; background: var(--surface);
+  border: 1px solid #2a2a35; border-radius: var(--radius);
+  display: flex; flex-direction: column; gap: 12px;
+}
+.cutoff-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 15px; }
+.cutoff-row small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+.cutoff-input { width: auto; max-width: 160px; padding: 10px 12px; font-size: 16px; background: var(--surface-2); text-align: center; }
+input[type="number"].cutoff-input { width: 72px; }
+.cutoff-actions { display: flex; gap: 8px; }
 .icon-btn:disabled { opacity: .25; }
 
 /* scroll area holding stats + list */

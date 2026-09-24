@@ -149,8 +149,26 @@
 
     <div class="month-nav">
       <button id="month-prev" class="icon-btn" aria-label="Previous month">‹</button>
-      <div id="month-label" class="month-label"></div>
+      <div class="month-label-wrap">
+        <div id="month-label" class="month-label"></div>
+        <button id="month-range" class="month-range" type="button" aria-label="Edit month start"></button>
+      </div>
       <button id="month-next" class="icon-btn" aria-label="Next month">›</button>
+    </div>
+
+    <div id="cutoff-panel" class="cutoff-panel" hidden>
+      <label class="cutoff-row">
+        <span>Month starts on day<small>your usual payday</small></span>
+        <input id="cutoff-day" class="field cutoff-input" type="number" inputmode="numeric" min="1" max="31">
+      </label>
+      <label class="cutoff-row">
+        <span id="cutoff-this-label">This month started<small>if the salary came on another day</small></span>
+        <input id="cutoff-date" class="field cutoff-input" type="date">
+      </label>
+      <div class="cutoff-actions">
+        <button id="cutoff-reset" class="btn ghost small" type="button">Use usual day</button>
+        <button id="cutoff-save" class="btn primary small grow" type="button">Save</button>
+      </div>
     </div>
 
     <div id="hist-scroll" class="hist-scroll">

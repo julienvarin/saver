@@ -9,9 +9,13 @@ const CATEGORIES = [
   "Bills", "Health", "Fun", "Travel", "Other",
 ];
 
+// Day your "month" starts (payday). Changeable in Stats → tap the date range.
+const DEFAULT_MONTH_START_DAY = 26;
+
 const LS = {
   url: "saver.sb_url",
   key: "saver.sb_key",
+  cutoff: "saver.cutoff",
 };
 
 let sb = null; // supabase client
@@ -327,26 +331,141 @@ function setFilter(type, value) {
   renderList(statsRows);
 }
 
-// Days counted for the per-day average: elapsed days for the current month,
-// full length for a past month.
-function daysElapsed(monthDate) {
-  const now = new Date();
-  if (monthDate.getFullYear() === now.getFullYear() && monthDate.getMonth() === now.getMonth()) {
-    return Math.max(1, now.getDate());
+/* ---- salary cycle: a "month" runs from one payday to the next ---- */
+// Stored per device: { day: usual start day, overrides: { "YYYY-MM": "YYYY-MM-DD" } }.
+// A month is named after where most of its days fall, so with a start day of
+// 26 the "October" month runs 26 Sep → 25 Oct. Overrides move a single
+// month's start (e.g. salary arrived on the 24th because the 26th was a Sunday).
+function getCutoff() {
+  let c = null;
+  try { c = JSON.parse(localStorage.getItem(LS.cutoff)); } catch (e) {}
+  const day = Math.min(31, Math.max(1, parseInt(c && c.day, 10) || DEFAULT_MONTH_START_DAY));
+  return { day, overrides: (c && c.overrides) || {} };
+}
+
+function setCutoff(c) {
+  try { localStorage.setItem(LS.cutoff, JSON.stringify(c)); } catch (e) {}
+}
+
+function monthKey(d) {
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+}
+
+function dateKey(d) {
+  return monthKey(d) + "-" + String(d.getDate()).padStart(2, "0");
+}
+
+// Start (local midnight) of the month named by d's year/month.
+function periodStart(d) {
+  const c = getCutoff();
+  const o = c.overrides[monthKey(d)];
+  if (o) {
+    const [y, m, day] = o.split("-").map(Number);
+    return new Date(y, m - 1, day);
   }
-  return new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0).getDate();
+  // late start day → the month begins in the previous calendar month
+  const m = c.day > 15 ? d.getMonth() - 1 : d.getMonth();
+  const len = new Date(d.getFullYear(), m + 1, 0).getDate();
+  return new Date(d.getFullYear(), m, Math.min(c.day, len));
 }
 
 function monthRange(d) {
   return {
-    start: new Date(d.getFullYear(), d.getMonth(), 1),
-    end: new Date(d.getFullYear(), d.getMonth() + 1, 1),
+    start: periodStart(d),
+    end: periodStart(new Date(d.getFullYear(), d.getMonth() + 1, 1)),
   };
 }
 
-function isCurrentMonth(d) {
+// The month (as a Date on its 1st) that today falls in.
+function currentPeriod() {
   const now = new Date();
-  return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+  let d = new Date(now.getFullYear(), now.getMonth(), 1);
+  while (now < monthRange(d).start) d = new Date(d.getFullYear(), d.getMonth() - 1, 1);
+  while (now >= monthRange(d).end) d = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+  return d;
+}
+
+function isCurrentMonth(d) {
+  return monthKey(d) === monthKey(currentPeriod());
+}
+
+// Days counted for the per-day average: elapsed days for the current month,
+// full length for a past month.
+function daysElapsed(monthDate) {
+  const { start, end } = monthRange(monthDate);
+  const DAY = 86400000;
+  if (isCurrentMonth(monthDate)) {
+    return Math.max(1, Math.floor((new Date() - start) / DAY) + 1);
+  }
+  return Math.max(1, Math.round((end - start) / DAY));
+}
+
+function shortDate(d) {
+  return d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+}
+
+function renderMonthRange() {
+  const { start, end } = monthRange(statsMonth);
+  const last = new Date(end); last.setDate(last.getDate() - 1);
+  $("#month-range").textContent = shortDate(start) + " – " + shortDate(last) + " ✎";
+}
+
+function toggleCutoffPanel(show) {
+  const panel = $("#cutoff-panel");
+  show = show === undefined ? panel.hidden : show;
+  panel.hidden = !show;
+  if (!show) return;
+  const c = getCutoff();
+  $("#cutoff-day").value = c.day;
+  $("#cutoff-date").value = dateKey(monthRange(statsMonth).start);
+  $("#cutoff-this-label").firstChild.textContent =
+    statsMonth.toLocaleDateString(undefined, { month: "long" }) + " started";
+}
+
+function saveCutoff() {
+  const c = getCutoff();
+  const day = parseInt($("#cutoff-day").value, 10);
+  if (!(day >= 1 && day <= 31)) { toast("Pick a day between 1 and 31", true); return; }
+  const key = monthKey(statsMonth);
+  const picked = $("#cutoff-date").value;
+  // untouched date + new usual day → just follow the new usual day
+  const dateUntouched = picked === dateKey(monthRange(statsMonth).start);
+  const dayChanged = day !== c.day;
+
+  c.day = day;
+  delete c.overrides[key];
+  setCutoff(c);
+
+  // keep a one-off start only if it differs from what the usual day gives
+  if (picked && !(dayChanged && dateUntouched) && picked !== dateKey(periodStart(statsMonth))) {
+    c.overrides[key] = picked;
+    setCutoff(c);
+    // it must stay between the neighbouring months' starts
+    const { start, end } = monthRange(statsMonth);
+    const prev = monthRange(new Date(statsMonth.getFullYear(), statsMonth.getMonth() - 1, 1));
+    if (!(start > prev.start && start < end)) {
+      delete c.overrides[key];
+      setCutoff(c);
+      toast("That date overlaps another month", true);
+      return;
+    }
+  }
+  afterCutoffChange();
+}
+
+function resetCutoffMonth() {
+  const c = getCutoff();
+  delete c.overrides[monthKey(statsMonth)];
+  setCutoff(c);
+  afterCutoffChange();
+}
+
+function afterCutoffChange() {
+  toggleCutoffPanel(false);
+  haptic();
+  // stay on the same month, but never past the current one
+  if (monthKey(statsMonth) > monthKey(currentPeriod())) statsMonth = currentPeriod();
+  loadHistory();
 }
 
 function dayLabel(d) {
@@ -360,19 +479,19 @@ function dayLabel(d) {
 
 function openHistory() {
   if (entry.editId) resetEntry(); // cancel any in-progress edit
-  statsMonth = new Date();
-  statsMonth.setDate(1);
+  statsMonth = currentPeriod();
   statsFilter = { type: null, value: null };
+  toggleCutoffPanel(false);
   showScreen("screen-history");
   loadHistory();
 }
 
 function changeMonth(delta) {
-  const d = new Date(statsMonth);
-  d.setMonth(d.getMonth() + delta);
-  if (delta > 0 && d > new Date()) return; // don't go past the current month
+  const d = new Date(statsMonth.getFullYear(), statsMonth.getMonth() + delta, 1);
+  if (delta > 0 && monthKey(d) > monthKey(currentPeriod())) return; // don't go past the current month
   statsMonth = d;
   statsFilter = { type: null, value: null };
+  toggleCutoffPanel(false);
   haptic();
   loadHistory();
 }
@@ -413,6 +532,7 @@ async function loadHistory() {
   $("#month-label").textContent =
     statsMonth.toLocaleDateString(undefined, { month: "long", year: "numeric" });
   $("#month-next").disabled = isCurrentMonth(statsMonth);
+  renderMonthRange();
   $("#hist-scroll").scrollTop = 0;
 
   const list = $("#hist-list");
@@ -810,6 +930,9 @@ function wire() {
   $("#hist-back").addEventListener("click", () => showScreen("screen-entry"));
   $("#month-prev").addEventListener("click", () => changeMonth(-1));
   $("#month-next").addEventListener("click", () => changeMonth(1));
+  $("#month-range").addEventListener("click", () => toggleCutoffPanel());
+  $("#cutoff-save").addEventListener("click", saveCutoff);
+  $("#cutoff-reset").addEventListener("click", resetCutoffMonth);
 
   // stats filters
   $("#nw-need-item").addEventListener("click", () => setFilter("kind", "need"));
