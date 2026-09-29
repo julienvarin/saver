@@ -202,6 +202,19 @@ body {
 }
 .pill.sub.active { background: var(--need); color: #04120c; }
 
+/* inline labelled inputs on the kind step (reimbursed amount / edit date) */
+.inline-field {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  background: var(--surface); border: 1px solid #2a2a35; border-radius: 14px;
+  padding: 10px 14px; margin: 0 0 12px; color: var(--muted); font-size: 14px; font-weight: 600;
+}
+.inline-field[hidden] { display: none; }
+.inline-field input {
+  background: transparent; border: none; outline: none; color: var(--text);
+  font-size: 17px; text-align: right; min-width: 0; flex: 1; color-scheme: dark;
+}
+.inline-field input::placeholder { color: #565663; }
+
 /* need / want */
 .kind-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; flex: 1; align-content: center; }
 .kind-btn.selected { border-color: var(--accent); background: var(--surface-2); }

@@ -11,6 +11,7 @@ create table if not exists public.expenses (
   split         boolean not null default false,
   reimbursable  boolean not null default false,
   reimbursed    boolean not null default false,
+  reimb_amount  numeric(12, 2) check (reimb_amount >= 0), -- null = fully reimbursable
   created_at    timestamptz not null default now()
 );
 
@@ -18,6 +19,7 @@ create table if not exists public.expenses (
 alter table public.expenses add column if not exists split        boolean not null default false;
 alter table public.expenses add column if not exists reimbursable boolean not null default false;
 alter table public.expenses add column if not exists reimbursed   boolean not null default false;
+alter table public.expenses add column if not exists reimb_amount numeric(12, 2) check (reimb_amount >= 0);
 
 -- Fast lookups for the history screen (newest first, per user).
 create index if not exists expenses_user_created_idx
