@@ -122,6 +122,14 @@
         <button id="reimb-toggle" class="pill" type="button">↩︎ Reimbursable</button>
         <button id="received-toggle" class="pill sub" type="button" hidden>✓ Received back</button>
       </div>
+      <label id="reimb-amt-wrap" class="inline-field" hidden>
+        <span>Reimbursed amount</span>
+        <input id="reimb-amt" type="text" inputmode="decimal" autocomplete="off" placeholder="Full" />
+      </label>
+      <label id="date-wrap" class="inline-field" hidden>
+        <span>Date</span>
+        <input id="edit-date" type="date" />
+      </label>
       <div class="kind-grid">
         <button class="kind-btn need" data-kind="need"><span class="k-emoji">✓</span>Need</button>
         <button class="kind-btn want" data-kind="want"><span class="k-emoji">✦</span>Want</button>

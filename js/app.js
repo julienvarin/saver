@@ -73,6 +73,9 @@ const entry = {
   split: false,
   reimbursable: false,
   reimbursed: false,
+  reimbAmount: "",  // raw input; empty = fully reimbursable
+  date: "",         // YYYY-MM-DD, only used when editing
+  createdAt: null,  // original created_at of the expense being edited
   editId: null, // set when editing an existing expense
 };
 
@@ -84,6 +87,9 @@ function resetEntry() {
   entry.split = false;
   entry.reimbursable = false;
   entry.reimbursed = false;
+  entry.reimbAmount = "";
+  entry.date = "";
+  entry.createdAt = null;
   entry.editId = null;
   renderAmount();
   $("#title-input").value = "";
@@ -124,6 +130,20 @@ function updateFlagsUI() {
   if (rec) {
     rec.hidden = !entry.reimbursable;      // only relevant when reimbursable
     rec.classList.toggle("active", !!entry.reimbursed);
+  }
+  const ra = $("#reimb-amt-wrap");
+  if (ra) {
+    ra.hidden = !entry.reimbursable;
+    const inp = $("#reimb-amt");
+    inp.value = entry.reimbAmount;
+    inp.placeholder = "Full · " + formatEuro(entry.amount);
+  }
+  // changing the date is only offered when editing from the stats menu
+  const dw = $("#date-wrap");
+  if (dw) {
+    dw.hidden = !entry.editId;
+    $("#edit-date").max = toDateInput(new Date());
+    $("#edit-date").value = entry.date;
   }
 }
 function toggleSplit() { entry.split = !entry.split; haptic(); updateFlagsUI(); }
@@ -257,6 +277,31 @@ function resetChips() {
 /* ------------------------------------------------------------------ */
 /*  Save                                                               */
 /* ------------------------------------------------------------------ */
+// Partial reimbursement amount, or null when it's the full amount (or unset).
+function parseReimbAmount() {
+  const raw = String(entry.reimbAmount || "").trim().replace(",", ".");
+  if (!raw) return null;
+  const n = Math.round(parseFloat(raw) * 100) / 100;
+  if (!isFinite(n) || n < 0) return undefined; // invalid
+  return n >= entry.amount ? null : n;
+}
+
+function toDateInput(d) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
+}
+
+// New created_at for an edited expense: chosen day, original time of day.
+function editedCreatedAt() {
+  if (!entry.date || !entry.createdAt) return null;
+  const orig = new Date(entry.createdAt);
+  if (toDateInput(orig) === entry.date) return null; // unchanged
+  const [y, m, d] = entry.date.split("-").map(Number);
+  const next = new Date(orig);
+  next.setFullYear(y, m - 1, d);
+  return next.toISOString();
+}
+
 async function saveExpense() {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) { toast("Not signed in", true); showScreen("screen-auth"); return; }
@@ -272,7 +317,17 @@ async function saveExpense() {
     reimbursed: entry.reimbursable ? entry.reimbursed : false,
   };
 
+  if (entry.reimbursable) {
+    const ra = parseReimbAmount();
+    if (ra === undefined) { toast("Invalid reimbursed amount", true); return; }
+    record.reimb_amount = ra;
+  }
+
   const editing = !!entry.editId;
+  if (editing) {
+    const createdAt = editedCreatedAt();
+    if (createdAt) record.created_at = createdAt;
+  }
 
   // optimistic confirmation
   $("#saved-amount").textContent = formatEuro(entry.amount);
@@ -382,13 +437,22 @@ function paidAmount(r) {
   const a = Number(r.amount) || 0;
   return r.split ? a / 2 : a;
 }
-// What counts toward your spend: reimbursable money isn't really yours.
-function netAmount(r) {
-  return r.reimbursable ? 0 : paidAmount(r);
+// How much of the expense gets paid back (null reimb_amount = all of it).
+function reimbAmount(r) {
+  if (!r.reimbursable) return 0;
+  const a = Number(r.amount) || 0;
+  return r.reimb_amount == null ? a : Math.min(Number(r.reimb_amount) || 0, a);
 }
-// Money still owed back to you (full amount fronted, until marked received).
+function isPartialReimb(r) {
+  return !!r.reimbursable && r.reimb_amount != null && Number(r.reimb_amount) < (Number(r.amount) || 0);
+}
+// What counts toward your spend: reimbursed money isn't really yours.
+function netAmount(r) {
+  return r.reimbursable ? Math.max(0, paidAmount(r) - reimbAmount(r)) : paidAmount(r);
+}
+// Money still owed back to you, until marked received.
 function pendingReimb(r) {
-  return (r.reimbursable && !r.reimbursed) ? (Number(r.amount) || 0) : 0;
+  return (r.reimbursable && !r.reimbursed) ? reimbAmount(r) : 0;
 }
 
 // Open an existing expense in the entry flow, pre-filled and editable.
@@ -401,6 +465,9 @@ function openEdit(r) {
   entry.split = !!r.split;
   entry.reimbursable = !!r.reimbursable;
   entry.reimbursed = !!r.reimbursed;
+  entry.reimbAmount = isPartialReimb(r) ? String(Number(r.reimb_amount)) : "";
+  entry.createdAt = r.created_at;
+  entry.date = toDateInput(new Date(r.created_at));
   applyCategories(r.categories || []);
   renderAmount();
   $("#title-input").value = entry.title;
@@ -573,9 +640,10 @@ function renderItem(r) {
   sub.className = "hi-sub";
   if (r.split) sub.appendChild(makeBadge("½ split", "split"));
   if (r.reimbursable) {
+    const part = isPartialReimb(r) ? " " + formatEuro(reimbAmount(r)) : "";
     sub.appendChild(r.reimbursed
-      ? makeBadge("↩︎ back", "reimb-done")
-      : makeBadge("↩︎ pending", "reimb-pending"));
+      ? makeBadge("↩︎" + part + " back", "reimb-done")
+      : makeBadge("↩︎" + part + " pending", "reimb-pending"));
   }
   const catSpan = document.createElement("span");
   catSpan.className = "cats";
@@ -588,8 +656,10 @@ function renderItem(r) {
   el.appendChild(main);
 
   const amt = document.createElement("div");
-  amt.className = "hi-amount" + (r.reimbursable ? " reimb" : "");
-  amt.textContent = formatEuro(paidAmount(r));
+  // fully reimbursed: struck-through paid amount; partial: what's left on you
+  const fullReimb = r.reimbursable && netAmount(r) === 0;
+  amt.className = "hi-amount" + (fullReimb ? " reimb" : "");
+  amt.textContent = formatEuro(r.reimbursable && !fullReimb ? netAmount(r) : paidAmount(r));
   el.appendChild(amt);
 
   // quick split toggle
@@ -798,6 +868,8 @@ function wire() {
   $("#split-toggle").addEventListener("click", toggleSplit);
   $("#reimb-toggle").addEventListener("click", toggleReimb);
   $("#received-toggle").addEventListener("click", toggleReceived);
+  $("#reimb-amt").addEventListener("input", (e) => (entry.reimbAmount = e.target.value));
+  $("#edit-date").addEventListener("change", (e) => (entry.date = e.target.value));
   $$(".kind-btn").forEach((b) => b.addEventListener("click", () => {
     entry.kind = b.dataset.kind;
     saveExpense();
