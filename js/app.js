@@ -12,7 +12,19 @@ const CATEGORIES = [
 const LS = {
   url: "saver.sb_url",
   key: "saver.sb_key",
+  cats: "saver.custom_cats",
 };
+
+// Custom categories you've used before. Learned from your saved expenses
+// (so they sync across devices) and cached locally for an instant render.
+let savedCats = loadCachedCats();
+
+function loadCachedCats() {
+  try {
+    const v = JSON.parse(localStorage.getItem(LS.cats) || "[]");
+    return Array.isArray(v) ? v.filter((x) => typeof x === "string" && x) : [];
+  } catch (e) { return []; }
+}
 
 let sb = null; // supabase client
 
@@ -204,7 +216,9 @@ function toggleChip(b, name) {
 function buildChips() {
   const wrap = $("#cats");
   wrap.innerHTML = "";
-  CATEGORIES.forEach((name) => {
+  const defaults = CATEGORIES.filter((n) => n !== "Other");
+  const names = defaults.concat(savedCats, CATEGORIES.indexOf("Other") >= 0 ? ["Other"] : []);
+  names.forEach((name) => {
     if (name === "Other") {
       const b = makeChip("+ Other");
       b.classList.add("add");
@@ -226,9 +240,23 @@ function buildChips() {
   });
 }
 
+// A regular (default or saved) chip by name, matched case-insensitively.
+function findChip(name) {
+  const k = name.toLowerCase();
+  return $$("#cats .chip").find((c) => !c.dataset.custom && !c.classList.contains("add") && c.textContent.toLowerCase() === k);
+}
+
 // Create a selected custom-category chip (used by the input and when editing).
+// If a chip with that name already exists, just select it.
 function addCustomCategoryDirect(name) {
-  if (!name || entry.categories.indexOf(name) >= 0) return;
+  if (!name) return;
+  const existing = findChip(name);
+  if (existing) {
+    const n = existing.textContent;
+    if (entry.categories.indexOf(n) < 0) { entry.categories.push(n); existing.classList.add("selected"); }
+    return;
+  }
+  if (entry.categories.indexOf(name) >= 0) return;
   const b = makeChip(name);
   b.classList.add("selected");
   b.dataset.custom = "1";
@@ -256,13 +284,50 @@ function addCustomCategory(rawName) {
 // Pre-select chips for an existing expense's categories (used when editing).
 function applyCategories(cats) {
   (cats || []).forEach((name) => {
-    if (CATEGORIES.indexOf(name) >= 0 && name !== "Other") {
-      const chip = $$("#cats .chip").find((c) => !c.dataset.custom && !c.classList.contains("add") && c.textContent === name);
-      if (chip) { chip.classList.add("selected"); if (entry.categories.indexOf(name) < 0) entry.categories.push(name); }
-    } else {
-      addCustomCategoryDirect(name);
-    }
+    const chip = $$("#cats .chip").find((c) => !c.dataset.custom && !c.classList.contains("add") && c.textContent === name);
+    if (chip) { chip.classList.add("selected"); if (entry.categories.indexOf(name) < 0) entry.categories.push(name); }
+    else addCustomCategoryDirect(name);
   });
+}
+
+// Replace the saved custom categories and redraw the chips, keeping the
+// current selection.
+function setSavedCats(list) {
+  const defaults = CATEGORIES.map((n) => n.toLowerCase());
+  const seen = new Set();
+  const next = [];
+  list.forEach((n) => {
+    const k = (n || "").trim().toLowerCase();
+    if (!k || defaults.indexOf(k) >= 0 || seen.has(k)) return;
+    seen.add(k); next.push(n.trim());
+  });
+  if (next.join("\n") === savedCats.join("\n")) return;
+  savedCats = next;
+  try { localStorage.setItem(LS.cats, JSON.stringify(savedCats)); } catch (e) {}
+  const selected = entry.categories.slice();
+  entry.categories = [];
+  buildChips();
+  applyCategories(selected);
+}
+
+// Remember any new custom categories from a just-saved expense.
+function rememberCats(cats) {
+  setSavedCats(savedCats.concat(cats || []));
+}
+
+// Learn custom categories from all your expenses, most used first.
+async function refreshSavedCats() {
+  const { data, error } = await sb
+    .from("expenses")
+    .select("categories")
+    .order("created_at", { ascending: false })
+    .limit(2000);
+  if (error || !data) return;
+  const count = new Map();
+  data.forEach((r) => (r.categories || []).forEach((c) => count.set(c, (count.get(c) || 0) + 1)));
+  const fromDb = Array.from(count.keys()).sort((a, b) => count.get(b) - count.get(a));
+  // keep locally-known ones that aren't in the DB yet (e.g. a save in flight)
+  setSavedCats(fromDb.concat(savedCats));
 }
 
 function resetChips() {
@@ -345,8 +410,10 @@ async function saveExpense() {
     return;
   }
 
+  const savedCatsUsed = record.categories.slice();
   setTimeout(() => {
     resetEntry();
+    rememberCats(savedCatsUsed);
     if (editing) {
       showScreen("screen-history");
       loadHistory();
@@ -816,6 +883,7 @@ async function boot() {
 }
 
 function startApp() {
+  refreshSavedCats();
   resetEntry();
   showStep("step-amount");
   showScreen("screen-entry");
