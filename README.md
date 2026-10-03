@@ -67,7 +67,7 @@ that publishes the site on every push to `main`.
 
 ## Customising
 
-- **Categories:** edit the `CATEGORIES` array at the top of [`js/app.js`](js/app.js).
+- **Categories:** edit the `CATEGORIES` array at the top of [`js/app.js`](js/app.js). Any category you add with **+ Other** is remembered automatically and shows up as a quick-pick chip from then on.
 - **Colours / look:** the CSS variables at the top of [`css/style.css`](css/style.css).
 - **App icon:** re-run `python3 scripts/gen_icons.py` after tweaking the colours in that script.
 
