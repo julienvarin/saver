@@ -67,16 +67,22 @@ that publishes the site on every push to `main`.
 
 ## Budget
 
-Tap **⚙** on the Stats screen to set:
+Tap **Edit budget** on the Stats card (or **⚙** at the top of Stats) to set:
 
 - **Salary received** — each salary starts a new budget month, running until the next one
   lands (so a salary on the 3rd gives a 3rd → 2nd month). Tap **+ New salary** on the Stats
   card when it arrives. Before your first salary, Stats uses calendar months.
 - **Split** — Needs / Wants / Save + debt (default 50 / 30 / 20).
-- **Planned bills** — recurring needs (rent, phone…) with their usual day. Unpaid ones are
-  reserved from the Needs budget (due on the first occurrence of their day after payday);
-  tap **Paid** to log one.
+- **Bills & subscriptions** — recurring payments with their usual day. Tap the **Need / Want**
+  toggle on each: rent and electricity are needs, Spotify is a want. Unpaid ones are reserved
+  from their own budget (due on the first occurrence of their day after payday); tap **Paid**
+  to log one. Want subscriptions are left out of the day-to-day "pace" so they don't skew it.
 - **Debts** — what you still owe. Tap **Pay** to log a repayment (amount only).
+
+**Extra money in** (a sub-tenant paying you, a refund, a side job): tap **+ Money in** on the
+Stats card, type the amount and a title. It's added to this month's income and split like
+your salary. If someone pays you back for part of a specific expense, mark that expense
+**Reimbursable** instead.
 
 Each expense is now **Need**, **Want**, **Debt** (repaying a debt / overdue invoice) or
 **Save** (money put aside). Debt and Save both count toward the savings share.

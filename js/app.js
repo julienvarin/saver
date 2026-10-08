@@ -90,6 +90,7 @@ const entry = {
   createdAt: null,  // original created_at of the expense being edited
   editId: null, // set when editing an existing expense
   quick: false, // prefilled entry (e.g. debt repayment): amount goes straight to the kind step
+  fromStats: false, // started from the Stats screen: go back there once saved
 };
 
 function resetEntry() {
@@ -105,6 +106,7 @@ function resetEntry() {
   entry.createdAt = null;
   entry.editId = null;
   entry.quick = false;
+  entry.fromStats = false;
   renderAmount();
   $("#title-input").value = "";
   resetChips();
@@ -127,6 +129,7 @@ function updateProgress(stepId) {
     "step-saved": "",
   };
   let label = map[stepId] || "";
+  if (entry.kind === "income" && label) label = "Money in · " + label;
   if (entry.editId && label) label = "Edit · " + label;
   $("#progress").textContent = label;
 }
@@ -407,16 +410,18 @@ async function saveExpense() {
   const { error } = await q;
   if (error) {
     console.error(error);
-    toast("Couldn't save: " + error.message, true);
-    showStep("step-kind");
+    const oldSchema = /kind_check/.test(error.message || "");
+    toast(oldSchema ? "Re-run supabase/schema.sql in Supabase to enable this" : "Couldn't save: " + error.message, true);
+    showStep(record.kind === "income" ? "step-title" : "step-kind");
     return;
   }
 
   const savedCatsUsed = record.categories.slice();
+  const backToStats = editing || entry.fromStats;
   setTimeout(() => {
     resetEntry();
     rememberCats(savedCatsUsed);
-    if (editing) {
+    if (backToStats) {
       showScreen("screen-history");
       loadHistory();
     } else {
@@ -434,6 +439,8 @@ let statsFilter = { type: null, value: null }; // null | 'kind'|'need'/'want'/'s
 
 // Debt repayments and money put aside both go to the savings bucket.
 function isSaving(r) { return r.kind === "debt" || r.kind === "save"; }
+// Extra money in (sub-tenant, refund, side job): adds to the month's income, never spending.
+function isIncome(r) { return r.kind === "income"; }
 
 function matchesFilter(r) {
   if (!statsFilter.type) return true;
@@ -607,6 +614,7 @@ function renderStats(rows) {
   // what you spent: money put aside / repaid isn't spending.
   let total = 0, need = 0, want = 0, saved = 0, pending = 0;
   filtered.forEach((r) => {
+    if (isIncome(r)) return;
     if (statsFilter.type || !isSaving(r)) total += netAmount(r);
     if (r.kind === "need") need += netAmount(r);
     else if (r.kind === "want") want += netAmount(r);
@@ -653,7 +661,7 @@ function renderStats(rows) {
   // category breakdown — scoped by an active kind filter, but not by a
   // category filter (so you can still switch between categories).
   // Unfiltered, it shows spending only.
-  const catScope = kindFilter ? rows.filter(matchesFilter) : rows.filter((r) => !isSaving(r));
+  const catScope = kindFilter ? rows.filter(matchesFilter) : rows.filter((r) => !isSaving(r) && !isIncome(r));
   const byCat = {};
   catScope.forEach((r) => {
     const a = netAmount(r);
@@ -705,7 +713,7 @@ function renderList(rows) {
 
   const sub = document.createElement("div");
   sub.className = "hist-sub";
-  sub.textContent = statsFilter.type ? (shown.length + " expense" + (shown.length > 1 ? "s" : "")) : "All expenses";
+  sub.textContent = statsFilter.type ? (shown.length + " expense" + (shown.length > 1 ? "s" : "")) : "All entries";
   list.appendChild(sub);
 
   let lastDay = null;
@@ -749,7 +757,7 @@ function renderItem(r) {
   }
   const catSpan = document.createElement("span");
   catSpan.className = "cats";
-  catSpan.textContent = (r.categories || []).join(" · ") || "—";
+  catSpan.textContent = isIncome(r) ? "Money in" : (r.categories || []).join(" · ") || "—";
   sub.appendChild(catSpan);
 
   main.appendChild(title);
@@ -758,6 +766,13 @@ function renderItem(r) {
   el.appendChild(main);
 
   const amt = document.createElement("div");
+  if (isIncome(r)) {
+    amt.className = "hi-amount income";
+    amt.textContent = "+" + formatEuro(r.amount);
+    el.appendChild(amt);
+    el.appendChild(deleteBtn(r));
+    return el;
+  }
   // fully reimbursed: struck-through paid amount; partial: what's left on you
   const fullReimb = r.reimbursable && netAmount(r) === 0;
   amt.className = "hi-amount" + (fullReimb ? " reimb" : "");
@@ -778,6 +793,11 @@ function renderItem(r) {
   });
   el.appendChild(split);
 
+  el.appendChild(deleteBtn(r));
+  return el;
+}
+
+function deleteBtn(r) {
   const del = document.createElement("button");
   del.className = "hi-act del";
   del.textContent = "🗑";
@@ -789,9 +809,7 @@ function renderItem(r) {
     haptic();
     loadHistory();
   });
-  el.appendChild(del);
-
-  return el;
+  return del;
 }
 
 /* ------------------------------------------------------------------ */
@@ -903,13 +921,16 @@ async function renderBudget(rows) {
   }
 
   const period = statsPeriod;
-  const income = period.income;
-  if (income == null) {
+  const salary = period.income;
+  if (salary == null) {
     const c = el("div", "bcard empty");
     c.appendChild(el("div", "hint", "Log your salary when it lands — your budget month runs from one payday to the next."));
     const btn = el("button", "btn primary small", "+ Salary received");
     btn.addEventListener("click", () => openBudgetSettings({ newSalary: true }));
     c.appendChild(btn);
+    const setup = el("button", "btn ghost small", "Bills, subscriptions & split");
+    setup.addEventListener("click", () => openBudgetSettings());
+    c.appendChild(setup);
     wrap.appendChild(c);
     return;
   }
@@ -921,21 +942,24 @@ async function renderBudget(rows) {
   const daysLeft = current ? Math.max(1, dim - today + 1) : 0;
   const todayDate = startOfDay(new Date());
 
-  let needSpent = 0, wantSpent = 0, debtPaid = 0, saved = 0;
+  let needSpent = 0, wantSpent = 0, debtPaid = 0, saved = 0, extra = 0;
   rows.forEach((r) => {
     const a = netAmount(r);
-    if (r.kind === "need") needSpent += a;
+    if (isIncome(r)) extra += Number(r.amount) || 0;
+    else if (r.kind === "need") needSpent += a;
     else if (r.kind === "debt") debtPaid += a;
     else if (r.kind === "save") saved += a;
     else wantSpent += a; // wants (and anything untagged)
   });
 
+  const income = salary + extra; // extra money in is split like salary
   const needBudget = income * budget.need_pct / 100;
   const wantBudget = income * budget.want_pct / 100;
   const saveTarget = income * budget.save_pct / 100;
 
-  // bills: paid this period when a need with the same name exists; due on the
-  // first occurrence of their day on/after payday
+  // bills: paid this period when a need / want with the same name exists; due on
+  // the first occurrence of their day on/after payday. Unpaid ones are reserved
+  // from their own bucket (needs, or wants for subscriptions).
   const bills = (budget.bills || []).map((b) => {
     const day = Number(b.day) || null;
     let due = null;
@@ -944,16 +968,22 @@ async function renderBudget(rows) {
       if (due < period.start) due = new Date(period.start.getFullYear(), period.start.getMonth() + 1, day);
     }
     return {
-      name: b.name, amount: Number(b.amount) || 0, due,
-      paid: rows.some((r) => r.kind === "need" && matchesName(r, b.name)),
+      name: b.name, amount: Number(b.amount) || 0, due, kind: billKind(b),
+      paid: rows.some((r) => (r.kind === "need" || r.kind === "want") && matchesName(r, b.name)),
     };
   });
-  const upcoming = current ? bills.filter((b) => !b.paid).reduce((s, b) => s + b.amount, 0) : 0;
+  const unpaid = (kind) => current ? bills.filter((b) => b.kind === kind && !b.paid).reduce((s, b) => s + b.amount, 0) : 0;
+  const upcoming = unpaid("need");
+  const upcomingWant = unpaid("want");
+  // subscriptions are fixed: keep them out of the day-to-day wants pace
+  const wantBills = bills.filter((b) => b.kind === "want");
+  const wantFixed = wantBills.reduce((s, b) => s + b.amount, 0);
+  const wantFixedPaid = wantFixed - wantBills.filter((b) => !b.paid).reduce((s, b) => s + b.amount, 0);
 
   const card = el("div", "bcard");
 
-  // headline: what's left for wants
-  const wantLeft = wantBudget - wantSpent;
+  // headline: what's left for wants, after subscriptions still to come
+  const wantLeft = wantBudget - wantSpent - upcomingWant;
   const head = el("div", "b-head");
   head.appendChild(el("div", "stat-total-label", wantLeft >= 0 ? "Wants left" : "Wants over budget"));
   head.appendChild(el("div", "b-head-amt" + (wantLeft < 0 ? " bad" : ""), euro0(Math.abs(wantLeft))));
@@ -968,16 +998,17 @@ async function renderBudget(rows) {
   // wants, with a "today" pace marker for the current month
   let wantSub, wantBad = false, wantGood = false;
   if (current) {
-    const pace = wantBudget * Math.min(1, today / dim);
-    const diff = pace - wantSpent;
+    const pace = Math.max(0, wantBudget - wantFixed) * Math.min(1, today / dim);
+    const diff = pace - Math.max(0, wantSpent - wantFixedPaid);
     wantSub = diff >= 0 ? euro0(diff) + " under pace for today" : euro0(-diff) + " ahead of pace — slow down";
     wantBad = diff < 0; wantGood = diff >= 0;
   } else {
     wantSub = wantLeft >= 0 ? euro0(wantLeft) + " unspent" : euro0(-wantLeft) + " over";
     wantBad = wantLeft < 0; wantGood = wantLeft >= 0;
   }
+  if (upcomingWant > 0) wantSub = euro0(upcomingWant) + " of subscriptions to come · " + wantSub;
   card.appendChild(bucket("want", "Wants " + budget.want_pct + "%", wantSpent, wantBudget, wantSub,
-    { marker: current ? (today / dim) * 100 : null, bad: wantBad, good: wantGood }));
+    { reserved: upcomingWant, marker: current ? (today / dim) * 100 : null, bad: wantBad, good: wantGood }));
 
   // needs, with unpaid bills reserved
   const needFree = needBudget - needSpent - upcoming;
@@ -989,7 +1020,7 @@ async function renderBudget(rows) {
   // savings + debt: what's logged, and where the month is heading
   const logged = debtPaid + saved;
   const projected = current
-    ? income - needSpent - upcoming - Math.max(wantSpent, wantBudget)
+    ? income - needSpent - upcoming - Math.max(wantSpent + upcomingWant, wantBudget)
     : income - needSpent - wantSpent;
   let saveSub = (debtPaid ? "Debt " + euro0(debtPaid) + " · " : "") + (saved ? "Saved " + euro0(saved) + " · " : "");
   saveSub += (current ? "On track for " : "Left over ") + euro0(projected);
@@ -997,24 +1028,34 @@ async function renderBudget(rows) {
     { bad: projected < saveTarget, good: projected >= saveTarget }));
 
   const foot = el("div", "b-foot");
-  foot.appendChild(el("span", "", "Salary " + euro0(income) + " · " +
+  foot.appendChild(el("span", "", "Salary " + euro0(salary) + (extra ? " + " + euro0(extra) + " in" : "") + " · " +
     period.start.toLocaleDateString(undefined, { day: "numeric", month: "short" })));
-  if (current) {
-    const got = el("button", "plan-act", "+ New salary");
-    got.type = "button";
-    got.addEventListener("click", () => openBudgetSettings({ newSalary: true }));
-    foot.appendChild(got);
-  }
   card.appendChild(foot);
+  const acts = el("div", "b-acts");
+  const actBtn = (label, fn) => {
+    const b = el("button", "plan-act", label);
+    b.type = "button";
+    b.addEventListener("click", fn);
+    acts.appendChild(b);
+  };
+  if (current) {
+    actBtn("+ Money in", startIncome);
+    actBtn("+ New salary", () => openBudgetSettings({ newSalary: true }));
+  }
+  actBtn("Edit budget", () => openBudgetSettings());
+  card.appendChild(acts);
   wrap.appendChild(card);
 
   // bills checklist (current month only)
   if (current && bills.length) {
-    wrap.appendChild(el("div", "section-label", "Bills this month"));
+    wrap.appendChild(el("div", "section-label", "Bills & subscriptions"));
     bills.slice().sort((a, b) => (a.due ? a.due.getTime() : Infinity) - (b.due ? b.due.getTime() : Infinity)).forEach((b) => {
       const row = el("div", "plan-row" + (b.paid ? " done" : ""));
       const main = el("div", "plan-main");
-      main.appendChild(el("div", "plan-name", b.name));
+      const name = el("div", "plan-name");
+      name.appendChild(el("span", "dot " + b.kind));
+      name.appendChild(document.createTextNode(b.name));
+      main.appendChild(name);
       let when = "";
       const inDays = b.due ? daysBetween(todayDate, b.due) : null;
       if (b.paid) when = "Paid";
@@ -1062,13 +1103,18 @@ async function renderBudget(rows) {
   }
 }
 
+// Bills are needs unless marked as a want (subscriptions).
+function billKind(b) { return b.kind === "want" ? "want" : "need"; }
+
 // One tap: log a planned bill as paid today (edit it from the list if it differed).
 async function logBill(b) {
   haptic();
   const { data: { user } } = await sb.auth.getUser();
   if (!user) { showScreen("screen-auth"); return; }
+  const kind = billKind(b);
   const { error } = await sb.from("expenses").insert({
-    user_id: user.id, amount: b.amount, title: b.name, categories: ["Bills"], kind: "need",
+    user_id: user.id, amount: b.amount, title: b.name,
+    categories: [kind === "want" ? "Subscriptions" : "Bills"], kind,
   });
   if (error) { toast(error.message, true); return; }
   toast(b.name + " logged · tap it below to edit");
@@ -1081,7 +1127,18 @@ function startDebtPayment(name) {
   entry.title = name;
   entry.kind = "debt";
   entry.quick = true;
+  entry.fromStats = true;
   $("#title-input").value = name;
+  showScreen("screen-entry");
+  showStep("step-amount");
+}
+
+// Extra money in: amount, then a title, then saved.
+function startIncome() {
+  haptic();
+  resetEntry();
+  entry.kind = "income";
+  entry.fromStats = true;
   showScreen("screen-entry");
   showStep("step-amount");
 }
@@ -1111,6 +1168,12 @@ function addBillRow(b) {
   row.appendChild(inputCell("er-name", b.name, "Rent"));
   row.appendChild(inputCell("er-amt", b.amount, "€", "decimal"));
   row.appendChild(inputCell("er-day", b.day, "Day", "numeric"));
+  const kind = el("button", "er-kind");
+  kind.type = "button";
+  const setKind = (k) => { row.dataset.kind = k; kind.textContent = k === "want" ? "Want" : "Need"; kind.className = "er-kind " + k; };
+  setKind(billKind(b));
+  kind.addEventListener("click", () => { haptic(); setKind(row.dataset.kind === "want" ? "need" : "want"); });
+  row.appendChild(kind);
   row.appendChild(removeBtn(row));
   $("#bs-bills").appendChild(row);
 }
@@ -1195,7 +1258,7 @@ async function saveBudgetSettings() {
     const amount = parseMoney(row.querySelector(".er-amt").value);
     if (amount == null) { toast("Invalid amount for " + name, true); return; }
     const day = parseInt(row.querySelector(".er-day").value, 10);
-    bills.push({ name, amount, day: day >= 1 && day <= 31 ? day : null });
+    bills.push({ name, amount, day: day >= 1 && day <= 31 ? day : null, kind: row.dataset.kind === "want" ? "want" : "need" });
   }
   const debts = [];
   for (const row of $$("#bs-debts .edit-row")) {
@@ -1416,7 +1479,7 @@ function wire() {
   $("#hist-back").addEventListener("click", () => showScreen("screen-entry"));
   $("#month-prev").addEventListener("click", () => changeMonth(-1));
   $("#month-next").addEventListener("click", () => changeMonth(1));
-  $("#go-budget").addEventListener("click", openBudgetSettings);
+  $("#go-budget").addEventListener("click", () => openBudgetSettings());
   $("#budget-back").addEventListener("click", () => { showScreen("screen-history"); });
   $("#bs-add-bill").addEventListener("click", () => addBillRow({}));
   $("#bs-add-salary").addEventListener("click", () => addSalaryRow({ date: toDateInput(new Date()) }, true));
@@ -1434,6 +1497,7 @@ function wire() {
 function goToCats() {
   $("#title-input").blur();
   syncMiniAmount();
+  if (entry.kind === "income") { saveExpense(); return; }
   showStep("step-cats");
 }
 

@@ -345,6 +345,8 @@ body {
 .badge.reimb-done { background: rgba(52, 211, 153, .18); color: var(--need); }
 .hi-amount { font-size: 17px; font-weight: 600; flex: 0 0 auto; }
 .hi-amount.reimb { opacity: .4; text-decoration: line-through; }
+.hi-amount.income { color: var(--need); }
+.hi-kind.income { background: transparent; border: 2px solid var(--need); }
 .hi-act {
   border: none; background: var(--surface-2); color: var(--muted);
   width: 34px; height: 34px; border-radius: 10px; font-size: 15px;
@@ -398,6 +400,7 @@ body {
 .b-reserved { height: 100%; opacity: .45;
   background-image: repeating-linear-gradient(135deg, currentColor 0 4px, transparent 4px 8px); }
 .b-reserved.need { color: var(--need); }
+.b-reserved.want { color: var(--want); }
 .b-marker { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; background: var(--text); border-radius: 2px; }
 .b-sub { color: var(--muted); font-size: 13px; margin-top: 6px; }
 .b-sub.good { color: var(--need); }
@@ -406,7 +409,8 @@ body {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
   color: var(--muted); font-size: 12px; margin-top: 14px; text-transform: uppercase; letter-spacing: .05em;
 }
-.b-foot .plan-act { text-transform: none; letter-spacing: 0; }
+.b-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.plan-name .dot { width: 8px; height: 8px; margin-right: 8px; vertical-align: middle; }
 
 /* bills + debts rows */
 .plan-row {
@@ -457,5 +461,10 @@ body {
 .edit-row .er-amt { flex: 0 0 72px; text-align: right; }
 .edit-row .er-amt.wide { flex-basis: 96px; }
 .edit-row .er-day { flex: 0 0 44px; text-align: right; }
+.er-kind {
+  flex: 0 0 auto; border: none; border-radius: 10px; padding: 7px 9px; cursor: pointer;
+  font-size: 13px; font-weight: 700; background: rgba(52, 211, 153, .18); color: var(--need);
+}
+.er-kind.want { background: rgba(251, 191, 36, .18); color: var(--want); }
 .add-row { margin-top: 4px; align-self: flex-start; }
 .bs-save { margin-top: 28px; }
