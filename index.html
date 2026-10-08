@@ -205,12 +205,10 @@
       <span class="icon-btn" aria-hidden="true"></span>
     </header>
     <div class="hist-scroll">
-      <div class="section-label">Income · <span id="bs-month"></span></div>
-      <label class="inline-field">
-        <span>Monthly income</span>
-        <input id="bs-income" type="text" inputmode="decimal" autocomplete="off" placeholder="€0" />
-      </label>
-      <p class="hint small-hint">Set per month. A month without its own income uses the latest one before it.</p>
+      <div class="section-label">Salary received</div>
+      <p class="hint small-hint">Each salary starts a new budget month, running until the next one lands.</p>
+      <div id="bs-salaries" class="edit-list"></div>
+      <button id="bs-add-salary" class="btn ghost small add-row" type="button">+ Add salary</button>
 
       <div class="section-label">Split</div>
       <div class="split-grid">

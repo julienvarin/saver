@@ -69,10 +69,13 @@ that publishes the site on every push to `main`.
 
 Tap **⚙** on the Stats screen to set:
 
-- **Monthly income** — per month; a month without its own value reuses the latest earlier one.
+- **Salary received** — each salary starts a new budget month, running until the next one
+  lands (so a salary on the 3rd gives a 3rd → 2nd month). Tap **+ New salary** on the Stats
+  card when it arrives. Before your first salary, Stats uses calendar months.
 - **Split** — Needs / Wants / Save + debt (default 50 / 30 / 20).
 - **Planned bills** — recurring needs (rent, phone…) with their usual day. Unpaid ones are
-  reserved from the Needs budget; tap **Paid** to log one.
+  reserved from the Needs budget (due on the first occurrence of their day after payday);
+  tap **Paid** to log one.
 - **Debts** — what you still owe. Tap **Pay** to log a repayment (amount only).
 
 Each expense is now **Need**, **Want**, **Debt** (repaying a debt / overdue invoice) or
