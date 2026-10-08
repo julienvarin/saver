@@ -46,13 +46,19 @@ function showStep(id) {
 }
 
 let toastTimer = null;
-function toast(msg, isErr) {
+let toastAction = null;
+// action: optional { label, fn }, e.g. Undo. Toasts with an action stay a bit longer.
+function toast(msg, isErr, action) {
   const t = $("#toast");
-  t.textContent = msg;
+  $("#toast-msg").textContent = msg;
+  const btn = $("#toast-act");
+  toastAction = action ? action.fn : null;
+  btn.hidden = !action;
+  if (action) btn.textContent = action.label;
   t.classList.toggle("err", !!isErr);
   t.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (t.hidden = true), 2600);
+  toastTimer = setTimeout(() => { t.hidden = true; toastAction = null; }, action ? 5000 : 2600);
 }
 
 function haptic() {
@@ -86,10 +92,12 @@ const entry = {
   reimbursable: false,
   reimbursed: false,
   reimbAmount: "",  // raw input; empty = fully reimbursable
-  date: "",         // YYYY-MM-DD, only used when editing
+  date: "",         // YYYY-MM-DD, defaults to today
   createdAt: null,  // original created_at of the expense being edited
   editId: null, // set when editing an existing expense
-  quick: false, // prefilled entry (e.g. debt repayment): amount goes straight to the kind step
+  quick: false, // prefilled entry (debt repayment, salary): the amount step saves
+  prefilled: false, // amount was prefilled: the first key press replaces it
+  catsTouched: false, // categories picked by hand: don't overwrite them from a known title
   fromStats: false, // started from the Stats screen: go back there once saved
 };
 
@@ -102,16 +110,24 @@ function resetEntry() {
   entry.reimbursable = false;
   entry.reimbursed = false;
   entry.reimbAmount = "";
-  entry.date = "";
+  entry.date = toDateInput(new Date());
   entry.createdAt = null;
   entry.editId = null;
   entry.quick = false;
+  entry.prefilled = false;
+  entry.catsTouched = false;
   entry.fromStats = false;
   renderAmount();
   $("#title-input").value = "";
   resetChips();
   updateKindUI();
   updateFlagsUI();
+  updateAmountBtn();
+}
+
+// The amount step saves directly for prefilled flows (debt repayment, salary).
+function updateAmountBtn() {
+  $("#amount-next").textContent = entry.quick ? "Save" : "Next";
 }
 
 function renderAmount() {
@@ -123,20 +139,21 @@ function renderAmount() {
 function updateProgress(stepId) {
   const map = {
     "step-amount": "Amount",
-    "step-title": "Title",
-    "step-cats": "Category",
-    "step-kind": "Need · Want · Debt · Save",
+    "step-details": "Details",
     "step-saved": "",
   };
   let label = map[stepId] || "";
-  if (entry.kind === "income" && label) label = "Money in · " + label;
+  const mode = { income: "Money in", salary: "New salary" }[entry.kind] || (entry.quick && entry.kind === "debt" ? "Repay " + entry.title : "");
+  if (mode && label) label = mode + " · " + label;
   if (entry.editId && label) label = "Edit · " + label;
   $("#progress").textContent = label;
 }
 
 /* need/want + flag toggles (split / reimbursable / received) */
-function updateKindUI() {
-  $$(".kind-btn").forEach((b) => b.classList.toggle("selected", entry.kind === b.dataset.kind));
+// hint: kind remembered for the typed title, highlighted until you pick one
+function updateKindUI(hint) {
+  const k = entry.kind || hint;
+  $$(".kind-btn").forEach((b) => b.classList.toggle("selected", k === b.dataset.kind));
 }
 function updateFlagsUI() {
   const s = $("#split-toggle");
@@ -155,13 +172,18 @@ function updateFlagsUI() {
     inp.value = entry.reimbAmount;
     inp.placeholder = "Full · " + formatEuro(entry.amount);
   }
-  // changing the date is only offered when editing from the stats menu
-  const dw = $("#date-wrap");
-  if (dw) {
-    dw.hidden = !entry.editId;
-    $("#edit-date").max = toDateInput(new Date());
-    $("#edit-date").value = entry.date;
-  }
+  updateDateUI();
+}
+function updateDateUI() {
+  const today = new Date();
+  const inp = $("#entry-date");
+  inp.max = toDateInput(today);
+  inp.value = entry.date;
+  const yest = toDateInput(addDays(today, -1));
+  $("#date-label").textContent = entry.date === toDateInput(today) ? "Today"
+    : entry.date === yest ? "Yesterday"
+    : parseDay(entry.date).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+  $(".date-chip").classList.toggle("set", entry.date !== toDateInput(today));
 }
 function toggleSplit() { entry.split = !entry.split; haptic(); updateFlagsUI(); }
 function toggleReimb() {
@@ -171,22 +193,32 @@ function toggleReimb() {
   updateFlagsUI();
 }
 function toggleReceived() { entry.reimbursed = !entry.reimbursed; haptic(); updateFlagsUI(); }
-function enterKindStep() {
+
+// Details step: title, recent entries, categories, flags, need / want.
+// Money in only needs a title, so it gets a plain Save button instead.
+function enterDetails() {
+  const income = entry.kind === "income";
+  $("#det-body").hidden = income;
+  $("#det-save").hidden = !income;
+  $("#title-input").placeholder = income ? "From who / what?" : "What was it?";
+  syncMiniAmount();
   updateKindUI();
   updateFlagsUI();
-  showStep("step-kind");
+  renderSuggest();
+  showStep("step-details");
+  $("#step-details").scrollTop = 0;
+  if (!entry.editId && !entry.title) setTimeout(() => $("#title-input").focus(), 60);
 }
 
 function syncMiniAmount() {
-  const txt = formatEuro(entry.amount);
-  $("#title-amount").textContent = txt;
-  $("#cats-amount").textContent = txt;
-  $("#kind-amount").textContent = txt;
+  $("#det-amount").textContent = formatEuro(entry.amount);
 }
 
 /* ---- keypad ---- */
 function pressKey(k) {
   haptic();
+  if (entry.prefilled && k !== "back") entry.amount = 0; // typing replaces a prefilled amount
+  entry.prefilled = false;
   if (k === "clear") {
     entry.amount = 0;
   } else if (k === "back") {
@@ -213,6 +245,7 @@ function makeChip(label) {
 
 function toggleChip(b, name) {
   haptic();
+  entry.catsTouched = true;
   const i = entry.categories.indexOf(name);
   if (i >= 0) { entry.categories.splice(i, 1); b.classList.remove("selected"); }
   else { entry.categories.push(name); b.classList.add("selected"); }
@@ -320,19 +353,90 @@ function rememberCats(cats) {
   setSavedCats(savedCats.concat(cats || []));
 }
 
-// Learn custom categories from all your expenses, most used first.
+// Learn custom categories and remembered titles from your expenses, most used first.
 async function refreshSavedCats() {
   const { data, error } = await sb
     .from("expenses")
-    .select("categories")
+    .select("title, categories, kind, created_at")
     .order("created_at", { ascending: false })
     .limit(2000);
   if (error || !data) return;
+  learnTitles(data);
   const count = new Map();
   data.forEach((r) => (r.categories || []).forEach((c) => count.set(c, (count.get(c) || 0) + 1)));
   const fromDb = Array.from(count.keys()).sort((a, b) => count.get(b) - count.get(a));
   // keep locally-known ones that aren't in the DB yet (e.g. a save in flight)
   setSavedCats(fromDb.concat(savedCats));
+}
+
+/* ---- remembered titles: one tap re-logs "Lidl · Groceries · Need" ---- */
+let known = new Map(); // norm(title) -> { key, title, categories, kind, count }, most recent first
+
+// Case, accent and spacing-insensitive key ("  loyer " == "Loyer").
+function norm(s) {
+  return String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+// rows: newest first, so the first time a title is seen is its latest use.
+function learnTitles(rows) {
+  const next = new Map();
+  rows.forEach((r) => {
+    const key = norm(r.title);
+    if (!key || !r.kind) return;
+    const k = next.get(key);
+    if (k) k.count++;
+    else next.set(key, { key, title: r.title.trim(), categories: r.categories || [], kind: r.kind, count: 1 });
+  });
+  known = next;
+}
+
+// Put a just-saved entry at the front of the remembered titles.
+function rememberTitle(rec) {
+  const key = norm(rec.title);
+  if (!key || !rec.kind) return;
+  const old = known.get(key);
+  known.delete(key);
+  known = new Map([[key, { key, title: rec.title.trim(), categories: rec.categories || [], kind: rec.kind, count: (old ? old.count : 0) + 1 }]].concat(Array.from(known)));
+}
+
+function renderSuggest() {
+  const wrap = $("#suggest");
+  wrap.innerHTML = "";
+  if (entry.editId) return; // a tap saves: never on an existing expense
+  const q = norm(entry.title);
+  const income = entry.kind === "income";
+  const list = Array.from(known.values())
+    .filter((k) => (k.kind === "income") === income && (!q || k.key.includes(q)));
+  // starts-with matches first, then most used (ties stay most recent first)
+  list.sort((a, b) => (q ? (b.key.startsWith(q) - a.key.startsWith(q)) : 0) || b.count - a.count);
+  list.slice(0, 6).forEach((k) => {
+    const b = el("button", "sg-chip");
+    b.type = "button";
+    b.appendChild(el("span", "dot " + (k.kind === "debt" ? "save" : k.kind === "income" ? "need" : k.kind)));
+    b.appendChild(el("span", "sg-title", k.title));
+    if (k.categories.length) b.appendChild(el("span", "sg-cats", k.categories.join(" · ")));
+    b.addEventListener("click", () => {
+      entry.title = k.title;
+      entry.categories = k.categories.slice();
+      entry.kind = k.kind;
+      saveExpense();
+    });
+    wrap.appendChild(b);
+  });
+}
+
+// Typing a title you've used before preselects its categories and kind.
+function onTitleInput(value) {
+  entry.title = value;
+  renderSuggest();
+  const k = known.get(norm(value));
+  if (!k || entry.kind === "income") { updateKindUI(); return; }
+  if (!entry.catsTouched) {
+    resetChips();
+    entry.categories = [];
+    applyCategories(k.categories);
+  }
+  updateKindUI(k.kind);
 }
 
 function resetChips() {
@@ -361,10 +465,11 @@ function toDateInput(d) {
   return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
 }
 
-// New created_at for an edited expense: chosen day, original time of day.
+// created_at for the chosen day, keeping the time of day (the original one
+// when editing, now for a new expense). Null when the day is unchanged.
 function editedCreatedAt() {
-  if (!entry.date || !entry.createdAt) return null;
-  const orig = new Date(entry.createdAt);
+  if (!entry.date) return null;
+  const orig = entry.createdAt ? new Date(entry.createdAt) : new Date();
   if (toDateInput(orig) === entry.date) return null; // unchanged
   const [y, m, d] = entry.date.split("-").map(Number);
   const next = new Date(orig);
@@ -394,10 +499,8 @@ async function saveExpense() {
   }
 
   const editing = !!entry.editId;
-  if (editing) {
-    const createdAt = editedCreatedAt();
-    if (createdAt) record.created_at = createdAt;
-  }
+  const createdAt = editedCreatedAt();
+  if (createdAt) record.created_at = createdAt;
 
   // optimistic confirmation
   $("#saved-amount").textContent = formatEuro(entry.amount);
@@ -406,18 +509,20 @@ async function saveExpense() {
 
   const q = editing
     ? sb.from("expenses").update(record).eq("id", entry.editId)
-    : sb.from("expenses").insert(record);
-  const { error } = await q;
+    : sb.from("expenses").insert(record).select();
+  const { data, error } = await q;
   if (error) {
     console.error(error);
     const oldSchema = /kind_check/.test(error.message || "");
     toast(oldSchema ? "Re-run supabase/schema.sql in Supabase to enable this" : "Couldn't save: " + error.message, true);
-    showStep(record.kind === "income" ? "step-title" : "step-kind");
+    if (entry.quick) showStep("step-amount"); else enterDetails();
     return;
   }
 
   const savedCatsUsed = record.categories.slice();
   const backToStats = editing || entry.fromStats;
+  const newId = !editing && data && data[0] ? data[0].id : null;
+  rememberTitle(record);
   setTimeout(() => {
     resetEntry();
     rememberCats(savedCatsUsed);
@@ -427,7 +532,53 @@ async function saveExpense() {
     } else {
       showStep("step-amount");
     }
-  }, 900);
+    if (newId) toast("Saved " + (record.title || formatEuro(record.amount)), false, { label: "Undo", fn: () => undoInsert(newId) });
+  }, 650);
+}
+
+async function undoInsert(id) {
+  const { error } = await sb.from("expenses").delete().eq("id", id);
+  if (error) { toast(error.message, true); return; }
+  haptic();
+  toast("Removed");
+  if ($("#screen-history").classList.contains("active")) loadHistory();
+}
+
+// Quick salary: the keypad is prefilled with the last salary, Save starts a new month.
+async function saveSalary() {
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) { showScreen("screen-auth"); return; }
+  const incomes = Object.assign({}, budget.incomes, { [entry.date]: entry.amount });
+  const next = {
+    user_id: user.id, need_pct: budget.need_pct, want_pct: budget.want_pct, save_pct: budget.save_pct,
+    incomes, bills: budget.bills || [], debts: budget.debts || [], updated_at: new Date().toISOString(),
+  };
+  const { error } = await sb.from("budgets").upsert(next);
+  if (error) { toast(error.message, true); return; }
+  budget = Object.assign({}, DEFAULT_BUDGET, next);
+  haptic();
+  resetEntry();
+  toast("Salary saved · new budget month");
+  statsPeriod = periodFor(new Date());
+  statsFilter = { type: null, value: null };
+  showScreen("screen-history");
+  loadHistory();
+}
+
+async function startSalary() {
+  if (!budgetLoaded) await loadBudget();
+  if (budgetMissing) { toast("Re-run supabase/schema.sql first", true); return; }
+  haptic();
+  resetEntry();
+  const pays = paydays();
+  entry.kind = "salary";
+  entry.quick = true;
+  entry.fromStats = true;
+  if (pays.length) { entry.amount = Math.round(pays[pays.length - 1].amount); entry.prefilled = true; }
+  renderAmount();
+  updateAmountBtn();
+  showScreen("screen-entry");
+  showStep("step-amount");
 }
 
 /* ------------------------------------------------------------------ */
@@ -446,6 +597,7 @@ function matchesFilter(r) {
   if (!statsFilter.type) return true;
   if (statsFilter.type === "kind") return statsFilter.value === "saving" ? isSaving(r) : r.kind === statsFilter.value;
   if (statsFilter.type === "category") return (r.categories || []).includes(statsFilter.value);
+  if (statsFilter.type === "pending") return pendingReimb(r) > 0;
   return true;
 }
 
@@ -524,7 +676,7 @@ function dayLabel(d) {
 }
 
 async function openHistory() {
-  if (entry.editId) resetEntry(); // cancel any in-progress edit
+  if (entry.editId || entry.fromStats) resetEntry(); // cancel an in-progress edit / prefilled flow
   if (!budgetLoaded) await loadBudget();
   statsPeriod = periodFor(new Date());
   statsFilter = { type: null, value: null };
@@ -576,6 +728,7 @@ function openEdit(r) {
   entry.reimbAmount = isPartialReimb(r) ? String(Number(r.reimb_amount)) : "";
   entry.createdAt = r.created_at;
   entry.date = toDateInput(new Date(r.created_at));
+  entry.catsTouched = true;
   applyCategories(r.categories || []);
   renderAmount();
   $("#title-input").value = entry.title;
@@ -613,9 +766,11 @@ function renderStats(rows) {
   // headline total + per-day, over the filtered set. Unfiltered, the total is
   // what you spent: money put aside / repaid isn't spending.
   let total = 0, need = 0, want = 0, saved = 0, pending = 0;
+  const pendingView = statsFilter.type === "pending";
   filtered.forEach((r) => {
     if (isIncome(r)) return;
-    if (statsFilter.type || !isSaving(r)) total += netAmount(r);
+    if (pendingView) total += pendingReimb(r); // what's still owed back
+    else if (statsFilter.type || !isSaving(r)) total += netAmount(r);
     if (r.kind === "need") need += netAmount(r);
     else if (r.kind === "want") want += netAmount(r);
     else if (isSaving(r)) saved += netAmount(r);
@@ -629,12 +784,14 @@ function renderStats(rows) {
   // label + clear affordance reflect the active filter
   const label = !statsFilter.type ? "Total spent"
     : statsFilter.type === "kind" ? ({ need: "Needs", want: "Wants", saving: "Saved + debt" }[statsFilter.value])
+    : statsFilter.type === "pending" ? "Waiting to get back"
     : statsFilter.value;
   $("#stat-label").textContent = label;
   $("#stat-clear").hidden = !statsFilter.type;
 
   // pending reimbursement line (money still to get back) — not filtered
   const pw = $("#reimb-pending");
+  pw.classList.toggle("active", statsFilter.type === "pending");
   if (pending > 0) {
     pw.hidden = false;
     $("#reimb-pending-amt").textContent = formatEuro(pending);
@@ -656,6 +813,11 @@ function renderStats(rows) {
     const item = $("#nw-" + k + "-item");
     item.classList.toggle("active", kindFilter && statsFilter.value === filterKey[k]);
     item.classList.toggle("dim", kindFilter && statsFilter.value !== filterKey[k]);
+  });
+  // the budget buckets filter too
+  $$(".b-bucket[data-filter]").forEach((b) => {
+    b.classList.toggle("active", kindFilter && statsFilter.value === b.dataset.filter);
+    b.classList.toggle("dim", kindFilter && statsFilter.value !== b.dataset.filter);
   });
 
   // category breakdown — scoped by an active kind filter, but not by a
@@ -751,9 +913,26 @@ function renderItem(r) {
   if (r.split) sub.appendChild(makeBadge("½ split", "split"));
   if (r.reimbursable) {
     const part = isPartialReimb(r) ? " " + formatEuro(reimbAmount(r)) : "";
-    sub.appendChild(r.reimbursed
-      ? makeBadge("↩︎" + part + " back", "reimb-done")
-      : makeBadge("↩︎" + part + " pending", "reimb-pending"));
+    if (r.reimbursed) sub.appendChild(makeBadge("↩︎" + part + " back", "reimb-done"));
+    else {
+      // tap the badge once the money is back
+      const got = document.createElement("button");
+      got.className = "badge reimb-pending";
+      got.type = "button";
+      got.textContent = "↩︎" + part + " pending · got it?";
+      got.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const { error } = await sb.from("expenses").update({ reimbursed: true }).eq("id", r.id);
+        if (error) { toast(error.message, true); return; }
+        haptic();
+        toast("Marked as received", false, { label: "Undo", fn: async () => {
+          await sb.from("expenses").update({ reimbursed: false }).eq("id", r.id);
+          loadHistory();
+        } });
+        loadHistory();
+      });
+      sub.appendChild(got);
+    }
   }
   const catSpan = document.createElement("span");
   catSpan.className = "cats";
@@ -807,6 +986,11 @@ function deleteBtn(r) {
     const { error } = await sb.from("expenses").delete().eq("id", r.id);
     if (error) { toast(error.message, true); return; }
     haptic();
+    toast("Deleted " + (r.title || formatEuro(r.amount)), false, { label: "Undo", fn: async () => {
+      const { error: e2 } = await sb.from("expenses").insert(Object.assign({}, r));
+      if (e2) { toast(e2.message, true); return; }
+      loadHistory();
+    } });
     loadHistory();
   });
   return del;
@@ -850,12 +1034,13 @@ async function loadDebtRows() {
   debtRows = error ? [] : (data || []);
 }
 
-// An expense belongs to a bill / debt when its title or a category has the same name.
+// An expense belongs to a bill / debt when its title or a category has the same
+// name (ignoring case, accents and extra spaces).
 function matchesName(r, name) {
-  const k = String(name || "").trim().toLowerCase();
+  const k = norm(name);
   if (!k) return false;
-  if ((r.title || "").trim().toLowerCase() === k) return true;
-  return (r.categories || []).some((c) => c.toLowerCase() === k);
+  if (norm(r.title) === k) return true;
+  return (r.categories || []).some((c) => norm(c) === k);
 }
 
 function el(tag, cls, text) {
@@ -890,6 +1075,10 @@ function bar(kind, used, reserved, total, markerPct) {
 function bucket(kind, label, spent, target, sub, opts) {
   opts = opts || {};
   const b = el("div", "b-bucket");
+  // tap a bucket to filter the list below by it
+  const filter = { need: "need", want: "want", save: "saving" }[kind];
+  b.dataset.filter = filter;
+  b.addEventListener("click", () => setFilter("kind", filter));
   const top = el("div", "b-top");
   const name = el("span", "b-name");
   name.appendChild(el("span", "dot " + kind));
@@ -913,6 +1102,7 @@ async function renderBudget(rows) {
   if (statsRows !== rows) return; // a newer month loaded meanwhile
   wrap.innerHTML = "";
 
+  $(".nw").hidden = false; // the budget card replaces this bar once a salary is logged
   if (budgetMissing) {
     const c = el("div", "bcard empty");
     c.appendChild(el("div", "hint", "Budgets need a database update: re-run supabase/schema.sql in the Supabase SQL editor."));
@@ -926,7 +1116,7 @@ async function renderBudget(rows) {
     const c = el("div", "bcard empty");
     c.appendChild(el("div", "hint", "Log your salary when it lands — your budget month runs from one payday to the next."));
     const btn = el("button", "btn primary small", "+ Salary received");
-    btn.addEventListener("click", () => openBudgetSettings({ newSalary: true }));
+    btn.addEventListener("click", startSalary);
     c.appendChild(btn);
     const setup = el("button", "btn ghost small", "Bills, subscriptions & split");
     setup.addEventListener("click", () => openBudgetSettings());
@@ -981,6 +1171,7 @@ async function renderBudget(rows) {
   const wantFixedPaid = wantFixed - wantBills.filter((b) => !b.paid).reduce((s, b) => s + b.amount, 0);
 
   const card = el("div", "bcard");
+  $(".nw").hidden = true;
 
   // headline: what's left for wants, after subscriptions still to come
   const wantLeft = wantBudget - wantSpent - upcomingWant;
@@ -1040,7 +1231,7 @@ async function renderBudget(rows) {
   };
   if (current) {
     actBtn("+ Money in", startIncome);
-    actBtn("+ New salary", () => openBudgetSettings({ newSalary: true }));
+    actBtn("+ New salary", startSalary);
   }
   actBtn("Edit budget", () => openBudgetSettings());
   card.appendChild(acts);
@@ -1112,16 +1303,17 @@ async function logBill(b) {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) { showScreen("screen-auth"); return; }
   const kind = billKind(b);
-  const { error } = await sb.from("expenses").insert({
+  const { data, error } = await sb.from("expenses").insert({
     user_id: user.id, amount: b.amount, title: b.name,
     categories: [kind === "want" ? "Subscriptions" : "Bills"], kind,
-  });
+  }).select();
   if (error) { toast(error.message, true); return; }
-  toast(b.name + " logged · tap it below to edit");
+  const row = data && data[0];
+  toast(b.name + " logged · " + euro0(b.amount), false, row ? { label: "Change", fn: () => openEdit(row) } : null);
   loadHistory();
 }
 
-// Open the entry flow prefilled for a debt repayment: just type the amount.
+// Open the entry flow prefilled for a debt repayment: just type the amount and Save.
 function startDebtPayment(name) {
   resetEntry();
   entry.title = name;
@@ -1129,6 +1321,7 @@ function startDebtPayment(name) {
   entry.quick = true;
   entry.fromStats = true;
   $("#title-input").value = name;
+  updateAmountBtn();
   showScreen("screen-entry");
   showStep("step-amount");
 }
@@ -1194,6 +1387,14 @@ function updateSplitHint() {
   h.classList.toggle("bad", sum !== 100);
 }
 
+// Unsaved edits on the budget screen: leaving asks before dropping them.
+let budgetDirty = false;
+function leaveBudgetSettings() {
+  if (budgetDirty && !confirm("Discard your budget changes?")) return;
+  budgetDirty = false;
+  showScreen("screen-history");
+}
+
 // Salaries older than the ones shown in settings, kept untouched on save.
 let hiddenPaydays = {};
 const SHOWN_PAYDAYS = 6;
@@ -1213,7 +1414,7 @@ function addSalaryRow(p, prepend) {
   return row;
 }
 
-async function openBudgetSettings(opts) {
+async function openBudgetSettings() {
   if (!budgetLoaded) await loadBudget();
   if (budgetMissing) { toast("Re-run supabase/schema.sql first", true); return; }
   const pays = paydays().reverse(); // newest first
@@ -1229,12 +1430,9 @@ async function openBudgetSettings(opts) {
   $("#bs-debts").innerHTML = "";
   (budget.bills || []).forEach(addBillRow);
   (budget.debts || []).forEach(addDebtRow);
+  budgetDirty = false;
   showScreen("screen-budget");
   $("#screen-budget .hist-scroll").scrollTop = 0;
-  if (opts && opts.newSalary) {
-    const row = addSalaryRow({ date: toDateInput(new Date()), amount: pays.length ? pays[0].amount : "" }, true);
-    setTimeout(() => row.querySelector(".er-amt").focus(), 60);
-  }
 }
 
 async function saveBudgetSettings() {
@@ -1278,6 +1476,7 @@ async function saveBudgetSettings() {
   const { error } = await sb.from("budgets").upsert(next);
   if (error) { toast(error.message, true); return; }
   budget = Object.assign({}, DEFAULT_BUDGET, next);
+  budgetDirty = false;
   haptic();
   toast("Budget saved");
   statsPeriod = periodFor(new Date());
@@ -1331,6 +1530,7 @@ async function signUp() {
 }
 
 async function signOut() {
+  if (!confirm("Sign out of Saver on this device?")) return;
   await sb.auth.signOut();
   showScreen("screen-auth");
 }
@@ -1433,45 +1633,50 @@ function wire() {
   // keypad
   $$(".keypad .key").forEach((b) => b.addEventListener("click", () => pressKey(b.dataset.k)));
 
-  // amount -> title
+  // amount -> details (or straight to save for prefilled flows)
   $("#amount-next").addEventListener("click", () => {
     if (entry.amount === 0) { toast("Enter an amount", true); return; }
-    syncMiniAmount();
-    if (entry.quick) { enterKindStep(); return; }
-    showStep("step-title");
-    setTimeout(() => $("#title-input").focus(), 60);
+    if (entry.kind === "salary") { saveSalary(); return; }
+    if (entry.quick) { saveExpense(); return; }
+    enterDetails();
   });
 
-  // title
-  $("#title-input").addEventListener("input", (e) => (entry.title = e.target.value));
-  $("#title-input").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); goToCats(); } });
-  $("#title-next").addEventListener("click", goToCats);
-  $("#title-back").addEventListener("click", () => showStep("step-amount"));
-
-  // cats
+  // details
+  $("#det-back").addEventListener("click", () => showStep("step-amount"));
+  $("#entry-date").addEventListener("change", (e) => {
+    entry.date = e.target.value || toDateInput(new Date());
+    updateDateUI();
+  });
+  $("#title-input").addEventListener("input", (e) => onTitleInput(e.target.value));
+  $("#title-input").addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    if (entry.kind === "income") saveExpense(); else e.target.blur();
+  });
+  $("#det-save").addEventListener("click", saveExpense);
   $("#cat-custom").addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); addCustomCategory(e.target.value); }
   });
   $("#cat-custom").addEventListener("blur", (e) => {
     if (e.target.value.trim()) addCustomCategory(e.target.value);
   });
-  $("#cats-next").addEventListener("click", () => {
-    if (!$("#cat-custom-wrap").hidden) addCustomCategory($("#cat-custom").value);
-    syncMiniAmount(); enterKindStep();
-  });
-  $("#cats-back").addEventListener("click", () => showStep("step-title"));
 
-  // kind + flags
+  // flags + kind (tapping a kind saves)
   $("#split-toggle").addEventListener("click", toggleSplit);
   $("#reimb-toggle").addEventListener("click", toggleReimb);
   $("#received-toggle").addEventListener("click", toggleReceived);
   $("#reimb-amt").addEventListener("input", (e) => (entry.reimbAmount = e.target.value));
-  $("#edit-date").addEventListener("change", (e) => (entry.date = e.target.value));
   $$(".kind-btn").forEach((b) => b.addEventListener("click", () => {
+    if (!$("#cat-custom-wrap").hidden) addCustomCategory($("#cat-custom").value);
     entry.kind = b.dataset.kind;
     saveExpense();
   }));
-  $("#kind-back").addEventListener("click", () => showStep("step-cats"));
+  $("#toast-act").addEventListener("click", () => {
+    const fn = toastAction;
+    $("#toast").hidden = true;
+    toastAction = null;
+    if (fn) fn();
+  });
 
   // nav
   $("#sign-out").addEventListener("click", signOut);
@@ -1480,7 +1685,11 @@ function wire() {
   $("#month-prev").addEventListener("click", () => changeMonth(-1));
   $("#month-next").addEventListener("click", () => changeMonth(1));
   $("#go-budget").addEventListener("click", () => openBudgetSettings());
-  $("#budget-back").addEventListener("click", () => { showScreen("screen-history"); });
+  $("#budget-back").addEventListener("click", leaveBudgetSettings);
+  $("#screen-budget").addEventListener("input", () => (budgetDirty = true));
+  $("#screen-budget .hist-scroll").addEventListener("click", (e) => {
+    if (e.target.closest(".er-kind, .hi-act, .add-row")) budgetDirty = true;
+  });
   $("#bs-add-bill").addEventListener("click", () => addBillRow({}));
   $("#bs-add-salary").addEventListener("click", () => addSalaryRow({ date: toDateInput(new Date()) }, true));
   $("#bs-add-debt").addEventListener("click", () => addDebtRow({}));
@@ -1492,13 +1701,7 @@ function wire() {
   $("#nw-want-item").addEventListener("click", () => setFilter("kind", "want"));
   $("#nw-save-item").addEventListener("click", () => setFilter("kind", "saving"));
   $("#stat-clear").addEventListener("click", () => setFilter(statsFilter.type, statsFilter.value));
-}
-
-function goToCats() {
-  $("#title-input").blur();
-  syncMiniAmount();
-  if (entry.kind === "income") { saveExpense(); return; }
-  showStep("step-cats");
+  $("#reimb-pending").addEventListener("click", () => setFilter("pending", true));
 }
 
 /* ------------------------------------------------------------------ */

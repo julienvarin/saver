@@ -3,8 +3,11 @@
 The fastest, most minimal euro expense tracker — a home-screen web app (PWA)
 hosted on GitHub Pages, with data in your own Supabase project.
 
-**The flow:** type the amount → short title → tap categories → Need or Want → saved.
-Swipe into the ≡ menu for recent history and this month's total.
+**The flow:** type the amount → Next → title + category on one screen → tap Need or Want → saved.
+Things you've logged before show up as one-tap chips ("Lidl · Groceries"), so a repeat
+expense is just the amount and one tap. The **Today ▾** chip logs it on another day, and
+every save, delete or bill payment can be undone from the toast.
+Tap the chart icon for Stats: tap a budget bucket or the pending line to filter the list.
 
 No build step, no framework — plain HTML/CSS/JS + the Supabase JS client from a CDN.
 
@@ -78,6 +81,8 @@ Tap **Edit budget** on the Stats card (or **⚙** at the top of Stats) to set:
   from their own budget (due on the first occurrence of their day after payday); tap **Paid**
   to log one. Want subscriptions are left out of the day-to-day "pace" so they don't skew it.
 - **Debts** — what you still owe. Tap **Pay** to log a repayment (amount only).
+
+**+ New salary** opens the keypad with your last salary; tap **Save** (or type the new amount).
 
 **Extra money in** (a sub-tenant paying you, a refund, a side job): tap **+ Money in** on the
 Stats card, type the amount and a title. It's added to this month's income and split like

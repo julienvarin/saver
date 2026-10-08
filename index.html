@@ -55,9 +55,9 @@
   <section id="screen-entry" class="screen">
     <!-- top bar: today's context + history -->
     <header class="topbar">
-      <button id="go-history" class="icon-btn" aria-label="History">≡</button>
+      <button id="go-history" class="icon-btn" aria-label="Stats"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 20V12M12 20V5M19 20v-9"/></svg></button>
       <span id="progress" class="progress"></span>
-      <button id="sign-out" class="icon-btn" aria-label="Sign out">⏻</button>
+      <span class="icon-btn" aria-hidden="true"></span>
     </header>
 
     <!-- Step 1: amount -->
@@ -82,63 +82,38 @@
       <button id="amount-next" class="btn primary wide">Next</button>
     </div>
 
-    <!-- Step 2: title -->
-    <div id="step-title" class="step">
-      <div class="step-head">
-        <div id="title-amount" class="mini-amount"></div>
-        <p class="hint">What was it?</p>
+    <!-- Step 2: details. Tapping Need / Want (or a recent entry) saves. -->
+    <div id="step-details" class="step">
+      <div class="det-head">
+        <button id="det-back" class="det-amount" type="button" aria-label="Change amount"><span class="det-back-ico">‹</span><span id="det-amount"></span></button>
+        <label class="date-chip"><span id="date-label">Today</span><input id="entry-date" type="date" aria-label="Date" /></label>
       </div>
-      <input id="title-input" class="field big" type="text" enterkeyhint="next" autocomplete="off" autocapitalize="sentences" placeholder="Title" />
-      <div class="row">
-        <button id="title-back" class="btn ghost">Back</button>
-        <button id="title-next" class="btn primary grow">Next</button>
+      <input id="title-input" class="field" type="text" enterkeyhint="done" autocomplete="off" autocapitalize="sentences" placeholder="What was it?" />
+      <div id="suggest" class="suggest"></div>
+      <div id="det-body" class="det-body">
+        <div id="cats" class="chips"></div>
+        <div id="cat-custom-wrap" class="cat-custom" hidden>
+          <input id="cat-custom" class="field" type="text" enterkeyhint="done" autocomplete="off" autocapitalize="words" placeholder="New category name" />
+        </div>
+        <div class="flags">
+          <button id="split-toggle" class="pill" type="button">🤝 Split</button>
+          <button id="reimb-toggle" class="pill" type="button">↩︎ Reimbursable</button>
+          <button id="received-toggle" class="pill sub" type="button" hidden>✓ Received back</button>
+        </div>
+        <label id="reimb-amt-wrap" class="inline-field" hidden>
+          <span>Reimbursed amount</span>
+          <input id="reimb-amt" type="text" inputmode="decimal" autocomplete="off" placeholder="Full" />
+        </label>
+        <div class="kind-grid">
+          <button class="kind-btn need" data-kind="need"><span class="k-emoji">✓</span>Need</button>
+          <button class="kind-btn want" data-kind="want"><span class="k-emoji">✦</span>Want</button>
+        </div>
+        <div class="kind-row">
+          <button class="kind-btn small debt" data-kind="debt"><span class="k-emoji">⇣</span>Debt</button>
+          <button class="kind-btn small save" data-kind="save"><span class="k-emoji">◆</span>Save</button>
+        </div>
       </div>
-    </div>
-
-    <!-- Step 3: categories -->
-    <div id="step-cats" class="step">
-      <div class="step-head">
-        <div id="cats-amount" class="mini-amount"></div>
-        <p class="hint">Category</p>
-      </div>
-      <div id="cats" class="chips"></div>
-      <div id="cat-custom-wrap" class="cat-custom" hidden>
-        <input id="cat-custom" class="field" type="text" enterkeyhint="done" autocomplete="off" autocapitalize="words" placeholder="New category name" />
-      </div>
-      <div class="row">
-        <button id="cats-back" class="btn ghost">Back</button>
-        <button id="cats-next" class="btn primary grow">Next</button>
-      </div>
-    </div>
-
-    <!-- Step 4: need / want -->
-    <div id="step-kind" class="step">
-      <div class="step-head">
-        <div id="kind-amount" class="mini-amount"></div>
-        <p class="hint">Where does it go?</p>
-      </div>
-      <div class="flags">
-        <button id="split-toggle" class="pill" type="button">🤝 Split</button>
-        <button id="reimb-toggle" class="pill" type="button">↩︎ Reimbursable</button>
-        <button id="received-toggle" class="pill sub" type="button" hidden>✓ Received back</button>
-      </div>
-      <label id="reimb-amt-wrap" class="inline-field" hidden>
-        <span>Reimbursed amount</span>
-        <input id="reimb-amt" type="text" inputmode="decimal" autocomplete="off" placeholder="Full" />
-      </label>
-      <label id="date-wrap" class="inline-field" hidden>
-        <span>Date</span>
-        <input id="edit-date" type="date" />
-      </label>
-      <div class="kind-grid">
-        <button class="kind-btn need" data-kind="need"><span class="k-emoji">✓</span>Need</button>
-        <button class="kind-btn want" data-kind="want"><span class="k-emoji">✦</span>Want</button>
-        <button class="kind-btn debt" data-kind="debt"><span class="k-emoji">⇣</span>Debt</button>
-        <button class="kind-btn save" data-kind="save"><span class="k-emoji">◆</span>Save</button>
-      </div>
-      <div class="row">
-        <button id="kind-back" class="btn ghost">Back</button>
-      </div>
+      <button id="det-save" class="btn primary wide det-save" type="button" hidden>Save</button>
     </div>
 
     <!-- Saved confirmation -->
@@ -173,7 +148,7 @@
         <button id="stat-clear" class="stat-clear" type="button" hidden>✕ Clear filter</button>
       </div>
 
-      <div id="reimb-pending" class="reimb-pending" hidden>
+      <div id="reimb-pending" class="reimb-pending" role="button" hidden>
         <span>↩︎ Pending reimbursement</span>
         <b id="reimb-pending-amt">€0</b>
       </div>
@@ -229,11 +204,12 @@
       <button id="bs-add-debt" class="btn ghost small add-row" type="button">+ Add debt</button>
 
       <button id="bs-save-btn" class="btn primary wide bs-save">Save budget</button>
+      <button id="sign-out" class="btn ghost small wide sign-out" type="button">Sign out</button>
     </div>
   </section>
 
   <!-- Toast -->
-  <div id="toast" class="toast" hidden></div>
+  <div id="toast" class="toast" hidden><span id="toast-msg"></span><button id="toast-act" class="toast-act" type="button" hidden></button></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
   <script src="js/app.js"></script>
