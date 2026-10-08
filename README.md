@@ -65,6 +65,24 @@ that publishes the site on every push to `main`.
 
 ---
 
+## Budget
+
+Tap **⚙** on the Stats screen to set:
+
+- **Monthly income** — per month; a month without its own value reuses the latest earlier one.
+- **Split** — Needs / Wants / Save + debt (default 50 / 30 / 20).
+- **Planned bills** — recurring needs (rent, phone…) with their usual day. Unpaid ones are
+  reserved from the Needs budget; tap **Paid** to log one.
+- **Debts** — what you still owe. Tap **Pay** to log a repayment (amount only).
+
+Each expense is now **Need**, **Want**, **Debt** (repaying a debt / overdue invoice) or
+**Save** (money put aside). Debt and Save both count toward the savings share.
+The Stats screen shows what's left in Wants (and per day), whether you're ahead of pace,
+needs after upcoming bills, and how much you're on track to save.
+
+> Upgrading? Re-run [`supabase/schema.sql`](supabase/schema.sql) once — it adds the
+> `budgets` table and the new expense kinds. It's safe to run on an existing project.
+
 ## Customising
 
 - **Categories:** edit the `CATEGORIES` array at the top of [`js/app.js`](js/app.js). Any category you add with **+ Other** is remembered automatically and shows up as a quick-pick chip from then on.

@@ -115,7 +115,7 @@
     <div id="step-kind" class="step">
       <div class="step-head">
         <div id="kind-amount" class="mini-amount"></div>
-        <p class="hint">Need or want?</p>
+        <p class="hint">Where does it go?</p>
       </div>
       <div class="flags">
         <button id="split-toggle" class="pill" type="button">🤝 Split</button>
@@ -133,6 +133,8 @@
       <div class="kind-grid">
         <button class="kind-btn need" data-kind="need"><span class="k-emoji">✓</span>Need</button>
         <button class="kind-btn want" data-kind="want"><span class="k-emoji">✦</span>Want</button>
+        <button class="kind-btn debt" data-kind="debt"><span class="k-emoji">⇣</span>Debt</button>
+        <button class="kind-btn save" data-kind="save"><span class="k-emoji">◆</span>Save</button>
       </div>
       <div class="row">
         <button id="kind-back" class="btn ghost">Back</button>
@@ -152,7 +154,7 @@
     <header class="topbar">
       <button id="hist-back" class="icon-btn" aria-label="Back">‹</button>
       <span class="progress">Stats</span>
-      <span class="icon-btn" aria-hidden="true"></span>
+      <button id="go-budget" class="icon-btn" aria-label="Budget settings">⚙</button>
     </header>
 
     <div class="month-nav">
@@ -162,6 +164,8 @@
     </div>
 
     <div id="hist-scroll" class="hist-scroll">
+      <div id="budget"></div>
+
       <div class="stat-total">
         <div class="stat-total-label" id="stat-label">Total spent</div>
         <div id="stat-total" class="stat-total-amount">€0</div>
@@ -178,16 +182,55 @@
         <div class="nw-bar">
           <div id="nw-need" class="nw-seg need" style="width:0"></div>
           <div id="nw-want" class="nw-seg want" style="width:0"></div>
+          <div id="nw-save" class="nw-seg save" style="width:0"></div>
         </div>
         <div class="nw-legend">
           <button id="nw-need-item" class="nw-item" type="button"><span class="dot need"></span>Needs&nbsp;<b id="nw-need-amt">€0</b>&nbsp;<span class="pct" id="nw-need-pct"></span></button>
           <button id="nw-want-item" class="nw-item" type="button"><span class="dot want"></span>Wants&nbsp;<b id="nw-want-amt">€0</b>&nbsp;<span class="pct" id="nw-want-pct"></span></button>
+          <button id="nw-save-item" class="nw-item" type="button"><span class="dot save"></span>Saved&nbsp;<b id="nw-save-amt">€0</b>&nbsp;<span class="pct" id="nw-save-pct"></span></button>
         </div>
       </div>
 
       <div id="cat-breakdown"></div>
 
       <div id="hist-list" class="hist-list-inner"></div>
+    </div>
+  </section>
+
+  <!-- Budget settings -->
+  <section id="screen-budget" class="screen">
+    <header class="topbar">
+      <button id="budget-back" class="icon-btn" aria-label="Back">‹</button>
+      <span class="progress">Budget</span>
+      <span class="icon-btn" aria-hidden="true"></span>
+    </header>
+    <div class="hist-scroll">
+      <div class="section-label">Income · <span id="bs-month"></span></div>
+      <label class="inline-field">
+        <span>Monthly income</span>
+        <input id="bs-income" type="text" inputmode="decimal" autocomplete="off" placeholder="€0" />
+      </label>
+      <p class="hint small-hint">Set per month. A month without its own income uses the latest one before it.</p>
+
+      <div class="section-label">Split</div>
+      <div class="split-grid">
+        <label class="split-cell need"><span>Needs %</span><input id="bs-need" type="text" inputmode="numeric" /></label>
+        <label class="split-cell want"><span>Wants %</span><input id="bs-want" type="text" inputmode="numeric" /></label>
+        <label class="split-cell save"><span>Save + debt %</span><input id="bs-save" type="text" inputmode="numeric" /></label>
+      </div>
+      <p id="bs-split-hint" class="hint small-hint"></p>
+
+      <div class="section-label">Planned bills (needs)</div>
+      <p class="hint small-hint">Recurring bills you pay at different times. Unpaid ones are reserved from your needs budget.</p>
+      <div id="bs-bills" class="edit-list"></div>
+      <button id="bs-add-bill" class="btn ghost small add-row" type="button">+ Add bill</button>
+
+      <div class="section-label">Debts to repay</div>
+      <p class="hint small-hint">Total still owed when you start tracking. Log repayments as <b>Debt</b> with the same title.</p>
+      <div id="bs-debts" class="edit-list"></div>
+      <button id="bs-add-debt" class="btn ghost small add-row" type="button">+ Add debt</button>
+
+      <button id="bs-save-btn" class="btn primary wide bs-save">Save budget</button>
     </div>
   </section>
 

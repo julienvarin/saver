@@ -89,6 +89,7 @@ const entry = {
   date: "",         // YYYY-MM-DD, only used when editing
   createdAt: null,  // original created_at of the expense being edited
   editId: null, // set when editing an existing expense
+  quick: false, // prefilled entry (e.g. debt repayment): amount goes straight to the kind step
 };
 
 function resetEntry() {
@@ -103,6 +104,7 @@ function resetEntry() {
   entry.date = "";
   entry.createdAt = null;
   entry.editId = null;
+  entry.quick = false;
   renderAmount();
   $("#title-input").value = "";
   resetChips();
@@ -121,7 +123,7 @@ function updateProgress(stepId) {
     "step-amount": "Amount",
     "step-title": "Title",
     "step-cats": "Category",
-    "step-kind": "Need / Want",
+    "step-kind": "Need · Want · Debt · Save",
     "step-saved": "",
   };
   let label = map[stepId] || "";
@@ -428,11 +430,14 @@ async function saveExpense() {
 /* ------------------------------------------------------------------ */
 let statsMonth = null;                    // Date at the first day of the shown month
 let statsRows = [];                        // cached rows for the shown month
-let statsFilter = { type: null, value: null }; // null | 'kind'|'need'/'want' | 'category'|name
+let statsFilter = { type: null, value: null }; // null | 'kind'|'need'/'want'/'saving' | 'category'|name
+
+// Debt repayments and money put aside both go to the savings bucket.
+function isSaving(r) { return r.kind === "debt" || r.kind === "save"; }
 
 function matchesFilter(r) {
   if (!statsFilter.type) return true;
-  if (statsFilter.type === "kind") return r.kind === statsFilter.value;
+  if (statsFilter.type === "kind") return statsFilter.value === "saving" ? isSaving(r) : r.kind === statsFilter.value;
   if (statsFilter.type === "category") return (r.categories || []).includes(statsFilter.value);
   return true;
 }
@@ -565,6 +570,7 @@ async function loadHistory() {
   statsRows = data || [];
   renderStats(statsRows);
   renderList(statsRows);
+  renderBudget(statsRows);
 }
 
 function renderStats(rows) {
@@ -572,12 +578,14 @@ function renderStats(rows) {
   const kindFilter = statsFilter.type === "kind";
   const catFilter = statsFilter.type === "category";
 
-  // headline total + per-day, over the filtered set
-  let total = 0, need = 0, want = 0, pending = 0;
+  // headline total + per-day, over the filtered set. Unfiltered, the total is
+  // what you spent: money put aside / repaid isn't spending.
+  let total = 0, need = 0, want = 0, saved = 0, pending = 0;
   filtered.forEach((r) => {
-    total += netAmount(r);
+    if (statsFilter.type || !isSaving(r)) total += netAmount(r);
     if (r.kind === "need") need += netAmount(r);
     else if (r.kind === "want") want += netAmount(r);
+    else if (isSaving(r)) saved += netAmount(r);
   });
   rows.forEach((r) => { pending += pendingReimb(r); }); // pending ignores filter
 
@@ -587,7 +595,7 @@ function renderStats(rows) {
 
   // label + clear affordance reflect the active filter
   const label = !statsFilter.type ? "Total spent"
-    : statsFilter.type === "kind" ? (statsFilter.value === "need" ? "Needs" : "Wants")
+    : statsFilter.type === "kind" ? ({ need: "Needs", want: "Wants", saving: "Saved + debt" }[statsFilter.value])
     : statsFilter.value;
   $("#stat-label").textContent = label;
   $("#stat-clear").hidden = !statsFilter.type;
@@ -601,24 +609,26 @@ function renderStats(rows) {
     pw.hidden = true;
   }
 
-  // needs vs wants — reflects the filtered set; clickable to filter by kind
-  const nwTotal = need + want;
-  const needPct = nwTotal ? Math.round((need / nwTotal) * 100) : 0;
-  $("#nw-need").style.width = (nwTotal ? (need / nwTotal) * 100 : 0) + "%";
-  $("#nw-want").style.width = (nwTotal ? (want / nwTotal) * 100 : 0) + "%";
-  $("#nw-need-amt").textContent = formatEuro(need);
-  $("#nw-want-amt").textContent = formatEuro(want);
-  $("#nw-need-pct").textContent = nwTotal ? needPct + "%" : "";
-  $("#nw-want-pct").textContent = nwTotal ? (100 - needPct) + "%" : "";
-  const nItem = $("#nw-need-item"), wItem = $("#nw-want-item");
-  nItem.classList.toggle("active", kindFilter && statsFilter.value === "need");
-  wItem.classList.toggle("active", kindFilter && statsFilter.value === "want");
-  nItem.classList.toggle("dim", kindFilter && statsFilter.value !== "need");
-  wItem.classList.toggle("dim", kindFilter && statsFilter.value !== "want");
+  // needs / wants / saved — reflects the filtered set; clickable to filter by kind
+  const nwTotal = need + want + saved;
+  const parts = { need, want, save: saved };
+  const filterKey = { need: "need", want: "want", save: "saving" };
+  let pctLeft = 100;
+  ["need", "want", "save"].forEach((k, i) => {
+    const pct = !nwTotal ? 0 : i === 2 ? pctLeft : Math.round((parts[k] / nwTotal) * 100);
+    pctLeft -= pct;
+    $("#nw-" + k).style.width = (nwTotal ? (parts[k] / nwTotal) * 100 : 0) + "%";
+    $("#nw-" + k + "-amt").textContent = formatEuro(parts[k]);
+    $("#nw-" + k + "-pct").textContent = nwTotal ? pct + "%" : "";
+    const item = $("#nw-" + k + "-item");
+    item.classList.toggle("active", kindFilter && statsFilter.value === filterKey[k]);
+    item.classList.toggle("dim", kindFilter && statsFilter.value !== filterKey[k]);
+  });
 
   // category breakdown — scoped by an active kind filter, but not by a
   // category filter (so you can still switch between categories).
-  const catScope = kindFilter ? rows.filter((r) => r.kind === statsFilter.value) : rows;
+  // Unfiltered, it shows spending only.
+  const catScope = kindFilter ? rows.filter(matchesFilter) : rows.filter((r) => !isSaving(r));
   const byCat = {};
   catScope.forEach((r) => {
     const a = netAmount(r);
@@ -760,6 +770,400 @@ function renderItem(r) {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Budget: monthly income, need / want / savings split, bills, debts  */
+/* ------------------------------------------------------------------ */
+const DEFAULT_BUDGET = { need_pct: 50, want_pct: 30, save_pct: 20, incomes: {}, bills: [], debts: [] };
+let budget = Object.assign({}, DEFAULT_BUDGET);
+let budgetLoaded = false;
+let budgetMissing = false; // the budgets table isn't created yet (old schema)
+let debtRows = [];         // all-time debt repayments, for debt progress
+
+// Budget figures are shown in whole euros.
+function euro0(n) { return formatEuro(Math.round(Number(n) || 0)); }
+
+function monthKey(d) {
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+}
+
+function parseMoney(raw) {
+  const n = parseFloat(String(raw || "").trim().replace(/[€\s]/g, "").replace(",", "."));
+  return isFinite(n) && n >= 0 ? Math.round(n * 100) / 100 : null;
+}
+
+// Income for a month: its own value, else the latest earlier month's.
+function incomeFor(d) {
+  const key = monthKey(d);
+  const incomes = budget.incomes || {};
+  if (incomes[key] != null) return Number(incomes[key]);
+  const earlier = Object.keys(incomes).filter((k) => k < key).sort();
+  return earlier.length ? Number(incomes[earlier[earlier.length - 1]]) : null;
+}
+
+async function loadBudget() {
+  const { data, error } = await sb.from("budgets").select("*").maybeSingle();
+  if (error) {
+    budgetMissing = /budgets/.test(error.message || "") || error.code === "42P01" || error.code === "PGRST205";
+    console.error(error);
+  } else {
+    budgetMissing = false;
+    budget = Object.assign({}, DEFAULT_BUDGET, data || {});
+  }
+  budgetLoaded = true;
+}
+
+async function loadDebtRows() {
+  if (!(budget.debts || []).length) { debtRows = []; return; }
+  const { data, error } = await sb
+    .from("expenses")
+    .select("amount, split, reimbursable, reimb_amount, title, categories, kind, created_at")
+    .eq("kind", "debt");
+  debtRows = error ? [] : (data || []);
+}
+
+// An expense belongs to a bill / debt when its title or a category has the same name.
+function matchesName(r, name) {
+  const k = String(name || "").trim().toLowerCase();
+  if (!k) return false;
+  if ((r.title || "").trim().toLowerCase() === k) return true;
+  return (r.categories || []).some((c) => c.toLowerCase() === k);
+}
+
+function daysInMonth(d) { return new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate(); }
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+
+// A progress bar: solid fill, optional reserved segment, optional "today" marker.
+function bar(kind, used, reserved, total, markerPct) {
+  const track = el("div", "b-track");
+  const t = total > 0 ? total : 1;
+  const usedPct = Math.min(100, (used / t) * 100);
+  const resPct = Math.min(100 - usedPct, (reserved / t) * 100);
+  const fill = el("div", "b-fill " + kind + (used > total ? " over" : ""));
+  fill.style.width = usedPct + "%";
+  track.appendChild(fill);
+  if (resPct > 0) {
+    const res = el("div", "b-reserved " + kind);
+    res.style.width = resPct + "%";
+    track.appendChild(res);
+  }
+  if (markerPct != null) {
+    const m = el("div", "b-marker");
+    m.style.left = Math.min(100, markerPct) + "%";
+    track.appendChild(m);
+  }
+  return track;
+}
+
+function bucket(kind, label, spent, target, sub, opts) {
+  opts = opts || {};
+  const b = el("div", "b-bucket");
+  const top = el("div", "b-top");
+  const name = el("span", "b-name");
+  name.appendChild(el("span", "dot " + kind));
+  name.appendChild(document.createTextNode(label));
+  top.appendChild(name);
+  top.appendChild(el("span", "b-amt", euro0(spent) + " / " + euro0(target)));
+  b.appendChild(top);
+  b.appendChild(bar(kind, spent, opts.reserved || 0, target, opts.marker));
+  if (sub) {
+    const s = el("div", "b-sub" + (opts.bad ? " bad" : opts.good ? " good" : ""));
+    s.textContent = sub;
+    b.appendChild(s);
+  }
+  return b;
+}
+
+async function renderBudget(rows) {
+  const wrap = $("#budget");
+  if (!budgetLoaded) await loadBudget();
+  await loadDebtRows();
+  if (statsRows !== rows) return; // a newer month loaded meanwhile
+  wrap.innerHTML = "";
+
+  if (budgetMissing) {
+    const c = el("div", "bcard empty");
+    c.appendChild(el("div", "hint", "Budgets need a database update: re-run supabase/schema.sql in the Supabase SQL editor."));
+    wrap.appendChild(c);
+    return;
+  }
+
+  const month = statsMonth;
+  const income = incomeFor(month);
+  if (income == null) {
+    const c = el("div", "bcard empty");
+    c.appendChild(el("div", "hint", "Add your monthly income to see what you can still spend."));
+    const btn = el("button", "btn primary small", "Set up budget");
+    btn.addEventListener("click", openBudgetSettings);
+    c.appendChild(btn);
+    wrap.appendChild(c);
+    return;
+  }
+
+  const current = isCurrentMonth(month);
+  const today = new Date().getDate();
+  const dim = daysInMonth(month);
+  const daysLeft = current ? dim - today + 1 : 0;
+
+  let needSpent = 0, wantSpent = 0, debtPaid = 0, saved = 0;
+  rows.forEach((r) => {
+    const a = netAmount(r);
+    if (r.kind === "need") needSpent += a;
+    else if (r.kind === "debt") debtPaid += a;
+    else if (r.kind === "save") saved += a;
+    else wantSpent += a; // wants (and anything untagged)
+  });
+
+  const needBudget = income * budget.need_pct / 100;
+  const wantBudget = income * budget.want_pct / 100;
+  const saveTarget = income * budget.save_pct / 100;
+
+  // bills: paid this month when a need with the same name exists
+  const bills = (budget.bills || []).map((b) => ({
+    name: b.name, amount: Number(b.amount) || 0, day: Number(b.day) || null,
+    paid: rows.some((r) => r.kind === "need" && matchesName(r, b.name)),
+  }));
+  const upcoming = current ? bills.filter((b) => !b.paid).reduce((s, b) => s + b.amount, 0) : 0;
+
+  const card = el("div", "bcard");
+
+  // headline: what's left for wants
+  const wantLeft = wantBudget - wantSpent;
+  const head = el("div", "b-head");
+  head.appendChild(el("div", "stat-total-label", wantLeft >= 0 ? "Wants left" : "Wants over budget"));
+  head.appendChild(el("div", "b-head-amt" + (wantLeft < 0 ? " bad" : ""), euro0(Math.abs(wantLeft))));
+  if (current && wantLeft > 0) {
+    head.appendChild(el("div", "stat-perday",
+      euro0(Math.floor(wantLeft / daysLeft)) + " / day · " + daysLeft + " day" + (daysLeft > 1 ? "s" : "") + " left"));
+  }
+  card.appendChild(head);
+
+  // wants, with a "today" pace marker for the current month
+  let wantSub, wantBad = false, wantGood = false;
+  if (current) {
+    const pace = wantBudget * today / dim;
+    const diff = pace - wantSpent;
+    wantSub = diff >= 0 ? euro0(diff) + " under pace for today" : euro0(-diff) + " ahead of pace — slow down";
+    wantBad = diff < 0; wantGood = diff >= 0;
+  } else {
+    wantSub = wantLeft >= 0 ? euro0(wantLeft) + " unspent" : euro0(-wantLeft) + " over";
+    wantBad = wantLeft < 0; wantGood = wantLeft >= 0;
+  }
+  card.appendChild(bucket("want", "Wants " + budget.want_pct + "%", wantSpent, wantBudget, wantSub,
+    { marker: current ? (today / dim) * 100 : null, bad: wantBad, good: wantGood }));
+
+  // needs, with unpaid bills reserved
+  const needFree = needBudget - needSpent - upcoming;
+  let needSub = upcoming > 0 ? euro0(upcoming) + " of bills still to pay · " : "";
+  needSub += needFree >= 0 ? euro0(needFree) + " free" : euro0(-needFree) + " over";
+  card.appendChild(bucket("need", "Needs " + budget.need_pct + "%", needSpent, needBudget, needSub,
+    { reserved: upcoming, bad: needFree < 0 }));
+
+  // savings + debt: what's logged, and where the month is heading
+  const logged = debtPaid + saved;
+  const projected = current
+    ? income - needSpent - upcoming - Math.max(wantSpent, wantBudget)
+    : income - needSpent - wantSpent;
+  let saveSub = (debtPaid ? "Debt " + euro0(debtPaid) + " · " : "") + (saved ? "Saved " + euro0(saved) + " · " : "");
+  saveSub += (current ? "On track for " : "Left over ") + euro0(projected);
+  card.appendChild(bucket("save", "Save + debt " + budget.save_pct + "%", logged, saveTarget, saveSub,
+    { bad: projected < saveTarget, good: projected >= saveTarget }));
+
+  card.appendChild(el("div", "b-foot", "Income " + euro0(income)));
+  wrap.appendChild(card);
+
+  // bills checklist (current month only)
+  if (current && bills.length) {
+    wrap.appendChild(el("div", "section-label", "Bills this month"));
+    bills.slice().sort((a, b) => (a.day || 99) - (b.day || 99)).forEach((b) => {
+      const row = el("div", "plan-row" + (b.paid ? " done" : ""));
+      const main = el("div", "plan-main");
+      main.appendChild(el("div", "plan-name", b.name));
+      let when = "";
+      if (b.paid) when = "Paid";
+      else if (b.day) when = b.day < today ? "Was due on the " + b.day : b.day === today ? "Due today" : "Due in " + (b.day - today) + " day" + (b.day - today > 1 ? "s" : "");
+      main.appendChild(el("div", "plan-sub" + (!b.paid && b.day && b.day < today ? " bad" : ""), when || "Not paid yet"));
+      row.appendChild(main);
+      row.appendChild(el("div", "plan-amt", euro0(b.amount)));
+      if (b.paid) row.appendChild(el("span", "plan-act done", "✓"));
+      else {
+        const pay = el("button", "plan-act", "Paid");
+        pay.type = "button";
+        pay.addEventListener("click", () => logBill(b));
+        row.appendChild(pay);
+      }
+      wrap.appendChild(row);
+    });
+  }
+
+  // debts: progress since each debt was added
+  if ((budget.debts || []).length) {
+    wrap.appendChild(el("div", "section-label", "Debts"));
+    budget.debts.forEach((d) => {
+      const owed = Number(d.amount) || 0;
+      const since = d.since ? new Date(d.since + "T00:00:00") : null;
+      const paid = debtRows
+        .filter((r) => matchesName(r, d.name) && (!since || new Date(r.created_at) >= since))
+        .reduce((s, r) => s + netAmount(r), 0);
+      const left = Math.max(0, owed - paid);
+      const row = el("div", "plan-row debt" + (left === 0 ? " done" : ""));
+      const main = el("div", "plan-main");
+      main.appendChild(el("div", "plan-name", d.name));
+      main.appendChild(el("div", "plan-sub", left === 0 ? "Repaid 🎉" : euro0(paid) + " repaid of " + euro0(owed)));
+      main.appendChild(bar("save", paid, 0, owed));
+      row.appendChild(main);
+      row.appendChild(el("div", "plan-amt", euro0(left)));
+      if (left > 0) {
+        const pay = el("button", "plan-act", "Pay");
+        pay.type = "button";
+        pay.addEventListener("click", () => startDebtPayment(d.name));
+        row.appendChild(pay);
+      }
+      wrap.appendChild(row);
+    });
+  }
+}
+
+// One tap: log a planned bill as paid today (edit it from the list if it differed).
+async function logBill(b) {
+  haptic();
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) { showScreen("screen-auth"); return; }
+  const { error } = await sb.from("expenses").insert({
+    user_id: user.id, amount: b.amount, title: b.name, categories: ["Bills"], kind: "need",
+  });
+  if (error) { toast(error.message, true); return; }
+  toast(b.name + " logged · tap it below to edit");
+  loadHistory();
+}
+
+// Open the entry flow prefilled for a debt repayment: just type the amount.
+function startDebtPayment(name) {
+  resetEntry();
+  entry.title = name;
+  entry.kind = "debt";
+  entry.quick = true;
+  $("#title-input").value = name;
+  showScreen("screen-entry");
+  showStep("step-amount");
+}
+
+/* ---- budget settings screen ---- */
+function inputCell(cls, value, placeholder, mode) {
+  const i = document.createElement("input");
+  i.className = cls;
+  i.type = "text";
+  i.value = value == null ? "" : value;
+  i.placeholder = placeholder;
+  i.autocomplete = "off";
+  if (mode) i.inputMode = mode;
+  return i;
+}
+
+function removeBtn(row) {
+  const x = el("button", "hi-act del", "✕");
+  x.type = "button";
+  x.setAttribute("aria-label", "Remove");
+  x.addEventListener("click", () => row.remove());
+  return x;
+}
+
+function addBillRow(b) {
+  const row = el("div", "edit-row");
+  row.appendChild(inputCell("er-name", b.name, "Rent"));
+  row.appendChild(inputCell("er-amt", b.amount, "€", "decimal"));
+  row.appendChild(inputCell("er-day", b.day, "Day", "numeric"));
+  row.appendChild(removeBtn(row));
+  $("#bs-bills").appendChild(row);
+}
+
+function addDebtRow(d) {
+  const row = el("div", "edit-row");
+  row.dataset.since = d.since || toDateInput(new Date());
+  row.appendChild(inputCell("er-name", d.name, "Who / what"));
+  row.appendChild(inputCell("er-amt wide", d.amount, "€ owed", "decimal"));
+  row.appendChild(removeBtn(row));
+  $("#bs-debts").appendChild(row);
+}
+
+function updateSplitHint() {
+  const sum = ["#bs-need", "#bs-want", "#bs-save"].reduce((s, id) => s + (parseFloat($(id).value) || 0), 0);
+  const h = $("#bs-split-hint");
+  h.textContent = sum === 100 ? "Adds up to 100% ✓" : "Adds up to " + sum + "% — should be 100%";
+  h.classList.toggle("bad", sum !== 100);
+}
+
+async function openBudgetSettings() {
+  if (!budgetLoaded) await loadBudget();
+  if (budgetMissing) { toast("Re-run supabase/schema.sql first", true); return; }
+  const month = statsMonth || new Date();
+  $("#bs-month").textContent = month.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  const inc = incomeFor(month);
+  $("#bs-income").value = inc == null ? "" : inc;
+  $("#bs-need").value = budget.need_pct;
+  $("#bs-want").value = budget.want_pct;
+  $("#bs-save").value = budget.save_pct;
+  updateSplitHint();
+  $("#bs-bills").innerHTML = "";
+  $("#bs-debts").innerHTML = "";
+  (budget.bills || []).forEach(addBillRow);
+  (budget.debts || []).forEach(addDebtRow);
+  showScreen("screen-budget");
+}
+
+async function saveBudgetSettings() {
+  const pcts = ["#bs-need", "#bs-want", "#bs-save"].map((id) => parseFloat($(id).value) || 0);
+  if (pcts[0] + pcts[1] + pcts[2] !== 100) { toast("Split must add up to 100%", true); return; }
+
+  const month = statsMonth || new Date();
+  const incomes = Object.assign({}, budget.incomes || {});
+  const rawIncome = $("#bs-income").value.trim();
+  if (rawIncome) {
+    const inc = parseMoney(rawIncome);
+    if (inc == null) { toast("Invalid income", true); return; }
+    incomes[monthKey(month)] = inc;
+  } else {
+    delete incomes[monthKey(month)];
+  }
+
+  const bills = [];
+  for (const row of $$("#bs-bills .edit-row")) {
+    const name = row.querySelector(".er-name").value.trim();
+    if (!name) continue;
+    const amount = parseMoney(row.querySelector(".er-amt").value);
+    if (amount == null) { toast("Invalid amount for " + name, true); return; }
+    const day = parseInt(row.querySelector(".er-day").value, 10);
+    bills.push({ name, amount, day: day >= 1 && day <= 31 ? day : null });
+  }
+  const debts = [];
+  for (const row of $$("#bs-debts .edit-row")) {
+    const name = row.querySelector(".er-name").value.trim();
+    if (!name) continue;
+    const amount = parseMoney(row.querySelector(".er-amt").value);
+    if (amount == null) { toast("Invalid amount for " + name, true); return; }
+    debts.push({ name, amount, since: row.dataset.since });
+  }
+
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) { showScreen("screen-auth"); return; }
+  const next = {
+    user_id: user.id, need_pct: pcts[0], want_pct: pcts[1], save_pct: pcts[2],
+    incomes, bills, debts, updated_at: new Date().toISOString(),
+  };
+  const { error } = await sb.from("budgets").upsert(next);
+  if (error) { toast(error.message, true); return; }
+  budget = Object.assign({}, DEFAULT_BUDGET, next);
+  haptic();
+  toast("Budget saved");
+  showScreen("screen-history");
+  loadHistory();
+}
+
+/* ------------------------------------------------------------------ */
 /*  Auth                                                               */
 /* ------------------------------------------------------------------ */
 async function signIn() {
@@ -884,6 +1288,7 @@ async function boot() {
 
 function startApp() {
   refreshSavedCats();
+  loadBudget();
   resetEntry();
   showStep("step-amount");
   showScreen("screen-entry");
@@ -909,6 +1314,7 @@ function wire() {
   $("#amount-next").addEventListener("click", () => {
     if (entry.amount === 0) { toast("Enter an amount", true); return; }
     syncMiniAmount();
+    if (entry.quick) { enterKindStep(); return; }
     showStep("step-title");
     setTimeout(() => $("#title-input").focus(), 60);
   });
@@ -950,10 +1356,17 @@ function wire() {
   $("#hist-back").addEventListener("click", () => showScreen("screen-entry"));
   $("#month-prev").addEventListener("click", () => changeMonth(-1));
   $("#month-next").addEventListener("click", () => changeMonth(1));
+  $("#go-budget").addEventListener("click", openBudgetSettings);
+  $("#budget-back").addEventListener("click", () => { showScreen("screen-history"); });
+  $("#bs-add-bill").addEventListener("click", () => addBillRow({}));
+  $("#bs-add-debt").addEventListener("click", () => addDebtRow({}));
+  $("#bs-save-btn").addEventListener("click", saveBudgetSettings);
+  ["#bs-need", "#bs-want", "#bs-save"].forEach((id) => $(id).addEventListener("input", updateSplitHint));
 
   // stats filters
   $("#nw-need-item").addEventListener("click", () => setFilter("kind", "need"));
   $("#nw-want-item").addEventListener("click", () => setFilter("kind", "want"));
+  $("#nw-save-item").addEventListener("click", () => setFilter("kind", "saving"));
   $("#stat-clear").addEventListener("click", () => setFilter(statsFilter.type, statsFilter.value));
 }
 
