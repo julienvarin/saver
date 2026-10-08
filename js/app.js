@@ -428,8 +428,8 @@ async function saveExpense() {
 /* ------------------------------------------------------------------ */
 /*  History / stats                                                    */
 /* ------------------------------------------------------------------ */
-let statsMonth = null;                    // Date at the first day of the shown month
-let statsRows = [];                        // cached rows for the shown month
+let statsPeriod = null;                   // shown period, see periodFor()
+let statsRows = [];                        // cached rows for the shown period
 let statsFilter = { type: null, value: null }; // null | 'kind'|'need'/'want'/'saving' | 'category'|name
 
 // Debt repayments and money put aside both go to the savings bucket.
@@ -454,26 +454,57 @@ function setFilter(type, value) {
   renderList(statsRows);
 }
 
-// Days counted for the per-day average: elapsed days for the current month,
-// full length for a past month.
-function daysElapsed(monthDate) {
-  const now = new Date();
-  if (monthDate.getFullYear() === now.getFullYear() && monthDate.getMonth() === now.getMonth()) {
-    return Math.max(1, now.getDate());
+/* ---- periods: a budget month runs from one payday to the next ---- */
+const DAY = 86400000;
+function startOfDay(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
+function parseDay(s) { const [y, m, d] = s.split("-").map(Number); return new Date(y, m - 1, d); }
+function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
+function daysBetween(a, b) { return Math.round((startOfDay(b) - startOfDay(a)) / DAY); }
+
+// Salaries received, oldest first. Stored as budget.incomes {"YYYY-MM-DD": amount}
+// ("YYYY-MM" keys from before paydays count as the 1st of that month).
+function paydays() {
+  const inc = budget.incomes || {};
+  return Object.keys(inc)
+    .map((k) => ({ date: k.length === 7 ? k + "-01" : k, amount: Number(inc[k]) || 0 }))
+    .sort((a, b) => (a.date < b.date ? -1 : 1));
+}
+
+// The period containing a date: from the latest payday on/before it until the
+// next payday (open-ended while the next salary hasn't arrived — estEnd then
+// guesses a month later). Before the first payday, plain calendar months.
+function periodFor(date) {
+  const pays = paydays();
+  let i = -1;
+  pays.forEach((p, j) => { if (parseDay(p.date) <= date) i = j; });
+  if (i >= 0) {
+    const start = parseDay(pays[i].date);
+    const end = pays[i + 1] ? parseDay(pays[i + 1].date) : null;
+    const est = new Date(start); est.setMonth(est.getMonth() + 1);
+    return { start, end, estEnd: end || est, income: pays[i].amount, pay: true };
   }
-  return new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0).getDate();
+  const start = new Date(date.getFullYear(), date.getMonth(), 1);
+  let end = new Date(date.getFullYear(), date.getMonth() + 1, 1);
+  if (pays.length && parseDay(pays[0].date) < end) end = parseDay(pays[0].date);
+  return { start, end, estEnd: end, income: null, pay: false };
 }
 
-function monthRange(d) {
-  return {
-    start: new Date(d.getFullYear(), d.getMonth(), 1),
-    end: new Date(d.getFullYear(), d.getMonth() + 1, 1),
-  };
-}
-
-function isCurrentMonth(d) {
+function isCurrentPeriod(p) {
   const now = new Date();
-  return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+  return now >= p.start && (!p.end || now < p.end);
+}
+
+// Days counted for the per-day average: elapsed days in the current period,
+// full length for a past one.
+function daysElapsed(p) {
+  return isCurrentPeriod(p) ? daysBetween(p.start, new Date()) + 1 : Math.max(1, daysBetween(p.start, p.end));
+}
+
+function periodLabel(p) {
+  // a full calendar month (no salary logged yet) reads as "October 2026"
+  if (!p.pay && p.end.getDate() === 1) return p.start.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  const f = (d) => d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  return f(p.start) + " – " + (p.end ? f(addDays(p.end, -1)) : "today");
 }
 
 function dayLabel(d) {
@@ -485,20 +516,18 @@ function dayLabel(d) {
   return d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
 }
 
-function openHistory() {
+async function openHistory() {
   if (entry.editId) resetEntry(); // cancel any in-progress edit
-  statsMonth = new Date();
-  statsMonth.setDate(1);
+  if (!budgetLoaded) await loadBudget();
+  statsPeriod = periodFor(new Date());
   statsFilter = { type: null, value: null };
   showScreen("screen-history");
   loadHistory();
 }
 
 function changeMonth(delta) {
-  const d = new Date(statsMonth);
-  d.setMonth(d.getMonth() + delta);
-  if (delta > 0 && d > new Date()) return; // don't go past the current month
-  statsMonth = d;
+  if (delta > 0 && isCurrentPeriod(statsPeriod)) return; // don't go past the current period
+  statsPeriod = periodFor(delta > 0 ? statsPeriod.end : addDays(statsPeriod.start, -1));
   statsFilter = { type: null, value: null };
   haptic();
   loadHistory();
@@ -549,21 +578,17 @@ function openEdit(r) {
 }
 
 async function loadHistory() {
-  $("#month-label").textContent =
-    statsMonth.toLocaleDateString(undefined, { month: "long", year: "numeric" });
-  $("#month-next").disabled = isCurrentMonth(statsMonth);
+  $("#month-label").textContent = periodLabel(statsPeriod);
+  $("#month-next").disabled = isCurrentPeriod(statsPeriod);
   $("#hist-scroll").scrollTop = 0;
 
   const list = $("#hist-list");
   list.innerHTML = '<div class="hist-empty">Loading…</div>';
 
-  const { start, end } = monthRange(statsMonth);
-  const { data, error } = await sb
-    .from("expenses")
-    .select("*")
-    .gte("created_at", start.toISOString())
-    .lt("created_at", end.toISOString())
-    .order("created_at", { ascending: false });
+  const { start, end } = statsPeriod;
+  let q = sb.from("expenses").select("*").gte("created_at", start.toISOString());
+  if (end) q = q.lt("created_at", end.toISOString());
+  const { data, error } = await q.order("created_at", { ascending: false });
 
   if (error) { list.innerHTML = '<div class="hist-empty">Error loading.</div>'; toast(error.message, true); return; }
 
@@ -589,7 +614,7 @@ function renderStats(rows) {
   });
   rows.forEach((r) => { pending += pendingReimb(r); }); // pending ignores filter
 
-  const perDay = total / daysElapsed(statsMonth);
+  const perDay = total / daysElapsed(statsPeriod);
   $("#stat-total").textContent = formatEuro(total);
   $("#stat-perday").textContent = formatEuro(perDay) + " / day";
 
@@ -781,22 +806,9 @@ let debtRows = [];         // all-time debt repayments, for debt progress
 // Budget figures are shown in whole euros.
 function euro0(n) { return formatEuro(Math.round(Number(n) || 0)); }
 
-function monthKey(d) {
-  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
-}
-
 function parseMoney(raw) {
   const n = parseFloat(String(raw || "").trim().replace(/[€\s]/g, "").replace(",", "."));
   return isFinite(n) && n >= 0 ? Math.round(n * 100) / 100 : null;
-}
-
-// Income for a month: its own value, else the latest earlier month's.
-function incomeFor(d) {
-  const key = monthKey(d);
-  const incomes = budget.incomes || {};
-  if (incomes[key] != null) return Number(incomes[key]);
-  const earlier = Object.keys(incomes).filter((k) => k < key).sort();
-  return earlier.length ? Number(incomes[earlier[earlier.length - 1]]) : null;
 }
 
 async function loadBudget() {
@@ -827,8 +839,6 @@ function matchesName(r, name) {
   if ((r.title || "").trim().toLowerCase() === k) return true;
   return (r.categories || []).some((c) => c.toLowerCase() === k);
 }
-
-function daysInMonth(d) { return new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate(); }
 
 function el(tag, cls, text) {
   const e = document.createElement(tag);
@@ -892,22 +902,24 @@ async function renderBudget(rows) {
     return;
   }
 
-  const month = statsMonth;
-  const income = incomeFor(month);
+  const period = statsPeriod;
+  const income = period.income;
   if (income == null) {
     const c = el("div", "bcard empty");
-    c.appendChild(el("div", "hint", "Add your monthly income to see what you can still spend."));
-    const btn = el("button", "btn primary small", "Set up budget");
-    btn.addEventListener("click", openBudgetSettings);
+    c.appendChild(el("div", "hint", "Log your salary when it lands — your budget month runs from one payday to the next."));
+    const btn = el("button", "btn primary small", "+ Salary received");
+    btn.addEventListener("click", () => openBudgetSettings({ newSalary: true }));
     c.appendChild(btn);
     wrap.appendChild(c);
     return;
   }
 
-  const current = isCurrentMonth(month);
-  const today = new Date().getDate();
-  const dim = daysInMonth(month);
-  const daysLeft = current ? dim - today + 1 : 0;
+  const current = isCurrentPeriod(period);
+  const today = daysElapsed(period);                       // day number within the period
+  const dim = Math.max(1, daysBetween(period.start, period.estEnd)); // period length (estimated while open)
+  const late = current && today > dim;                     // next salary expected but not logged yet
+  const daysLeft = current ? Math.max(1, dim - today + 1) : 0;
+  const todayDate = startOfDay(new Date());
 
   let needSpent = 0, wantSpent = 0, debtPaid = 0, saved = 0;
   rows.forEach((r) => {
@@ -922,11 +934,20 @@ async function renderBudget(rows) {
   const wantBudget = income * budget.want_pct / 100;
   const saveTarget = income * budget.save_pct / 100;
 
-  // bills: paid this month when a need with the same name exists
-  const bills = (budget.bills || []).map((b) => ({
-    name: b.name, amount: Number(b.amount) || 0, day: Number(b.day) || null,
-    paid: rows.some((r) => r.kind === "need" && matchesName(r, b.name)),
-  }));
+  // bills: paid this period when a need with the same name exists; due on the
+  // first occurrence of their day on/after payday
+  const bills = (budget.bills || []).map((b) => {
+    const day = Number(b.day) || null;
+    let due = null;
+    if (day) {
+      due = new Date(period.start.getFullYear(), period.start.getMonth(), day);
+      if (due < period.start) due = new Date(period.start.getFullYear(), period.start.getMonth() + 1, day);
+    }
+    return {
+      name: b.name, amount: Number(b.amount) || 0, due,
+      paid: rows.some((r) => r.kind === "need" && matchesName(r, b.name)),
+    };
+  });
   const upcoming = current ? bills.filter((b) => !b.paid).reduce((s, b) => s + b.amount, 0) : 0;
 
   const card = el("div", "bcard");
@@ -936,16 +957,18 @@ async function renderBudget(rows) {
   const head = el("div", "b-head");
   head.appendChild(el("div", "stat-total-label", wantLeft >= 0 ? "Wants left" : "Wants over budget"));
   head.appendChild(el("div", "b-head-amt" + (wantLeft < 0 ? " bad" : ""), euro0(Math.abs(wantLeft))));
-  if (current && wantLeft > 0) {
+  if (late) {
+    head.appendChild(el("div", "stat-perday", "Payday was expected — log your salary to start the new month"));
+  } else if (current && wantLeft > 0) {
     head.appendChild(el("div", "stat-perday",
-      euro0(Math.floor(wantLeft / daysLeft)) + " / day · " + daysLeft + " day" + (daysLeft > 1 ? "s" : "") + " left"));
+      euro0(Math.floor(wantLeft / daysLeft)) + " / day · ~" + daysLeft + " day" + (daysLeft > 1 ? "s" : "") + " to payday"));
   }
   card.appendChild(head);
 
   // wants, with a "today" pace marker for the current month
   let wantSub, wantBad = false, wantGood = false;
   if (current) {
-    const pace = wantBudget * today / dim;
+    const pace = wantBudget * Math.min(1, today / dim);
     const diff = pace - wantSpent;
     wantSub = diff >= 0 ? euro0(diff) + " under pace for today" : euro0(-diff) + " ahead of pace — slow down";
     wantBad = diff < 0; wantGood = diff >= 0;
@@ -973,20 +996,31 @@ async function renderBudget(rows) {
   card.appendChild(bucket("save", "Save + debt " + budget.save_pct + "%", logged, saveTarget, saveSub,
     { bad: projected < saveTarget, good: projected >= saveTarget }));
 
-  card.appendChild(el("div", "b-foot", "Income " + euro0(income)));
+  const foot = el("div", "b-foot");
+  foot.appendChild(el("span", "", "Salary " + euro0(income) + " · " +
+    period.start.toLocaleDateString(undefined, { day: "numeric", month: "short" })));
+  if (current) {
+    const got = el("button", "plan-act", "+ New salary");
+    got.type = "button";
+    got.addEventListener("click", () => openBudgetSettings({ newSalary: true }));
+    foot.appendChild(got);
+  }
+  card.appendChild(foot);
   wrap.appendChild(card);
 
   // bills checklist (current month only)
   if (current && bills.length) {
     wrap.appendChild(el("div", "section-label", "Bills this month"));
-    bills.slice().sort((a, b) => (a.day || 99) - (b.day || 99)).forEach((b) => {
+    bills.slice().sort((a, b) => (a.due ? a.due.getTime() : Infinity) - (b.due ? b.due.getTime() : Infinity)).forEach((b) => {
       const row = el("div", "plan-row" + (b.paid ? " done" : ""));
       const main = el("div", "plan-main");
       main.appendChild(el("div", "plan-name", b.name));
       let when = "";
+      const inDays = b.due ? daysBetween(todayDate, b.due) : null;
       if (b.paid) when = "Paid";
-      else if (b.day) when = b.day < today ? "Was due on the " + b.day : b.day === today ? "Due today" : "Due in " + (b.day - today) + " day" + (b.day - today > 1 ? "s" : "");
-      main.appendChild(el("div", "plan-sub" + (!b.paid && b.day && b.day < today ? " bad" : ""), when || "Not paid yet"));
+      else if (b.due) when = inDays < 0 ? "Was due " + b.due.toLocaleDateString(undefined, { day: "numeric", month: "short" })
+        : inDays === 0 ? "Due today" : "Due in " + inDays + " day" + (inDays > 1 ? "s" : "");
+      main.appendChild(el("div", "plan-sub" + (!b.paid && inDays != null && inDays < 0 ? " bad" : ""), when || "Not paid yet"));
       row.appendChild(main);
       row.appendChild(el("div", "plan-amt", euro0(b.amount)));
       if (b.paid) row.appendChild(el("span", "plan-act done", "✓"));
@@ -1097,13 +1131,33 @@ function updateSplitHint() {
   h.classList.toggle("bad", sum !== 100);
 }
 
-async function openBudgetSettings() {
+// Salaries older than the ones shown in settings, kept untouched on save.
+let hiddenPaydays = {};
+const SHOWN_PAYDAYS = 6;
+
+function addSalaryRow(p, prepend) {
+  const row = el("div", "edit-row");
+  const date = document.createElement("input");
+  date.type = "date";
+  date.className = "er-date";
+  date.value = p.date || "";
+  date.max = toDateInput(new Date());
+  row.appendChild(date);
+  row.appendChild(inputCell("er-amt wide", p.amount, "€", "decimal"));
+  row.appendChild(removeBtn(row));
+  const list = $("#bs-salaries");
+  if (prepend) list.insertBefore(row, list.firstChild); else list.appendChild(row);
+  return row;
+}
+
+async function openBudgetSettings(opts) {
   if (!budgetLoaded) await loadBudget();
   if (budgetMissing) { toast("Re-run supabase/schema.sql first", true); return; }
-  const month = statsMonth || new Date();
-  $("#bs-month").textContent = month.toLocaleDateString(undefined, { month: "long", year: "numeric" });
-  const inc = incomeFor(month);
-  $("#bs-income").value = inc == null ? "" : inc;
+  const pays = paydays().reverse(); // newest first
+  hiddenPaydays = {};
+  pays.slice(SHOWN_PAYDAYS).forEach((p) => { hiddenPaydays[p.date] = p.amount; });
+  $("#bs-salaries").innerHTML = "";
+  pays.slice(0, SHOWN_PAYDAYS).forEach((p) => addSalaryRow(p));
   $("#bs-need").value = budget.need_pct;
   $("#bs-want").value = budget.want_pct;
   $("#bs-save").value = budget.save_pct;
@@ -1113,21 +1167,25 @@ async function openBudgetSettings() {
   (budget.bills || []).forEach(addBillRow);
   (budget.debts || []).forEach(addDebtRow);
   showScreen("screen-budget");
+  $("#screen-budget .hist-scroll").scrollTop = 0;
+  if (opts && opts.newSalary) {
+    const row = addSalaryRow({ date: toDateInput(new Date()), amount: pays.length ? pays[0].amount : "" }, true);
+    setTimeout(() => row.querySelector(".er-amt").focus(), 60);
+  }
 }
 
 async function saveBudgetSettings() {
   const pcts = ["#bs-need", "#bs-want", "#bs-save"].map((id) => parseFloat($(id).value) || 0);
   if (pcts[0] + pcts[1] + pcts[2] !== 100) { toast("Split must add up to 100%", true); return; }
 
-  const month = statsMonth || new Date();
-  const incomes = Object.assign({}, budget.incomes || {});
-  const rawIncome = $("#bs-income").value.trim();
-  if (rawIncome) {
-    const inc = parseMoney(rawIncome);
-    if (inc == null) { toast("Invalid income", true); return; }
-    incomes[monthKey(month)] = inc;
-  } else {
-    delete incomes[monthKey(month)];
+  const incomes = Object.assign({}, hiddenPaydays);
+  for (const row of $$("#bs-salaries .edit-row")) {
+    const date = row.querySelector(".er-date").value;
+    const raw = row.querySelector(".er-amt").value.trim();
+    if (!date && !raw) continue;
+    const amount = parseMoney(raw);
+    if (!date || amount == null) { toast("Each salary needs a date and an amount", true); return; }
+    incomes[date] = amount;
   }
 
   const bills = [];
@@ -1159,6 +1217,8 @@ async function saveBudgetSettings() {
   budget = Object.assign({}, DEFAULT_BUDGET, next);
   haptic();
   toast("Budget saved");
+  statsPeriod = periodFor(new Date());
+  statsFilter = { type: null, value: null };
   showScreen("screen-history");
   loadHistory();
 }
@@ -1359,6 +1419,7 @@ function wire() {
   $("#go-budget").addEventListener("click", openBudgetSettings);
   $("#budget-back").addEventListener("click", () => { showScreen("screen-history"); });
   $("#bs-add-bill").addEventListener("click", () => addBillRow({}));
+  $("#bs-add-salary").addEventListener("click", () => addSalaryRow({ date: toDateInput(new Date()) }, true));
   $("#bs-add-debt").addEventListener("click", () => addDebtRow({}));
   $("#bs-save-btn").addEventListener("click", saveBudgetSettings);
   ["#bs-need", "#bs-want", "#bs-save"].forEach((id) => $(id).addEventListener("input", updateSplitHint));

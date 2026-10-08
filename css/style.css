@@ -402,7 +402,11 @@ body {
 .b-sub { color: var(--muted); font-size: 13px; margin-top: 6px; }
 .b-sub.good { color: var(--need); }
 .b-sub.bad, .plan-sub.bad, .hint.bad { color: var(--danger); }
-.b-foot { color: var(--muted); font-size: 12px; text-align: right; margin-top: 14px; text-transform: uppercase; letter-spacing: .05em; }
+.b-foot {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  color: var(--muted); font-size: 12px; margin-top: 14px; text-transform: uppercase; letter-spacing: .05em;
+}
+.b-foot .plan-act { text-transform: none; letter-spacing: 0; }
 
 /* bills + debts rows */
 .plan-row {
@@ -448,7 +452,8 @@ body {
 }
 .edit-row input { font-size: 16px; }
 .edit-row input::placeholder, .split-cell input::placeholder { color: #565663; }
-.edit-row .er-name { flex: 1; }
+.edit-row .er-name, .edit-row .er-date { flex: 1; }
+.edit-row .er-date { color-scheme: dark; font-size: 16px; font-family: inherit; }
 .edit-row .er-amt { flex: 0 0 72px; text-align: right; }
 .edit-row .er-amt.wide { flex-basis: 96px; }
 .edit-row .er-day { flex: 0 0 44px; text-align: right; }
