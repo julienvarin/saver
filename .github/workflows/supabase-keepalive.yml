@@ -1,0 +1,30 @@
+name: Supabase keep-alive
+
+# Free Supabase projects pause after 7 days without activity. Write one row
+# every few days so that never happens.
+on:
+  schedule:
+    # 06:17 UTC on days 1, 7, 13, 19, 25 and 31 of each month: never more than 6 days apart.
+    - cron: '17 6 */6 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+    steps:
+      - name: Write keep-alive row
+        run: |
+          psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 <<'SQL'
+          create table if not exists public.keepalive (
+            id        int primary key default 1 check (id = 1),
+            pinged_at timestamptz not null default now()
+          );
+          alter table public.keepalive enable row level security;
+          insert into public.keepalive (id, pinged_at) values (1, now())
+            on conflict (id) do update set pinged_at = excluded.pinged_at;
+          SQL

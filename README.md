@@ -71,6 +71,14 @@ don't have to paste it into the SQL Editor again. One-time setup:
 The script is idempotent and runs in a single transaction, so a failing statement changes nothing.
 Keep new changes in the same style (`add column if not exists`, `drop ... if exists` then `create`).
 
+### Keep-alive
+
+Free Supabase projects pause after 7 days without activity.
+[`.github/workflows/supabase-keepalive.yml`](.github/workflows/supabase-keepalive.yml) uses the
+same `SUPABASE_DB_URL` secret to update a single row in a `keepalive` table at most 6 days apart.
+GitHub turns off scheduled workflows after 60 days with no commits to the repo; it emails you
+first, and one click on **Enable workflow** in the Actions tab turns it back on.
+
 ---
 
 ## 3. Add it to your iPhone home screen

@@ -69,3 +69,11 @@ alter table public.budgets enable row level security;
 drop policy if exists "own budget - all" on public.budgets;
 create policy "own budget - all" on public.budgets
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- Keep-alive: a GitHub Action writes here every few days so the free-tier project
+-- isn't paused for inactivity. RLS on with no policies = invisible to the app's API.
+create table if not exists public.keepalive (
+  id        int primary key default 1 check (id = 1),
+  pinged_at timestamptz not null default now()
+);
+alter table public.keepalive enable row level security;
