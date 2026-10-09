@@ -54,6 +54,23 @@ that publishes the site on every push to `main`.
   **Source = GitHub Actions**, then re-run the workflow. (The workflow tries to enable this
   automatically, but the one-click setting is the fallback.)
 
+### Automatic schema updates
+
+A second workflow ([`.github/workflows/supabase-schema.yml`](.github/workflows/supabase-schema.yml))
+re-runs `supabase/schema.sql` on your database whenever a merge to `main` changes it, so you
+don't have to paste it into the SQL Editor again. One-time setup:
+
+1. In Supabase, click **Connect** (top bar) and copy the **Session pooler** connection string
+   (not "Direct connection" — that one is IPv6-only and GitHub's runners can't reach it).
+   Replace `[YOUR-PASSWORD]` with your database password (reset it under
+   **Project Settings → Database** if you don't have it).
+2. In GitHub, go to **Settings → Secrets and variables → Actions → New repository secret**,
+   name it `SUPABASE_DB_URL` and paste the string.
+3. Run it once by hand from **Actions → Apply Supabase schema → Run workflow** to check it works.
+
+The script is idempotent and runs in a single transaction, so a failing statement changes nothing.
+Keep new changes in the same style (`add column if not exists`, `drop ... if exists` then `create`).
+
 ---
 
 ## 3. Add it to your iPhone home screen
