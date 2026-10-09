@@ -1,13 +1,11 @@
 name: Apply Supabase schema
 
-# Re-runs supabase/schema.sql against the database whenever it changes on main.
+# Re-runs supabase/schema.sql against the database on every push to main.
 # The file is idempotent (create ... if not exists / drop ... if exists), so
 # running it again on an existing project is safe.
 on:
   push:
     branches: [main]
-    paths:
-      - supabase/schema.sql
   workflow_dispatch:
 
 permissions:

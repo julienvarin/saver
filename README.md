@@ -57,7 +57,7 @@ that publishes the site on every push to `main`.
 ### Automatic schema updates
 
 A second workflow ([`.github/workflows/supabase-schema.yml`](.github/workflows/supabase-schema.yml))
-re-runs `supabase/schema.sql` on your database whenever a merge to `main` changes it, so you
+re-runs `supabase/schema.sql` on your database after every merge to `main`, so you
 don't have to paste it into the SQL Editor again. One-time setup:
 
 1. In Supabase, click **Connect** (top bar) and copy the **Session pooler** connection string
@@ -66,7 +66,7 @@ don't have to paste it into the SQL Editor again. One-time setup:
    **Project Settings → Database** if you don't have it).
 2. In GitHub, go to **Settings → Secrets and variables → Actions → New repository secret**,
    name it `SUPABASE_DB_URL` and paste the string.
-3. Run it once by hand from **Actions → Apply Supabase schema → Run workflow** to check it works.
+3. Merge anything to `main` and check the **Apply Supabase schema** run in the Actions tab is green.
 
 The script is idempotent and runs in a single transaction, so a failing statement changes nothing.
 Keep new changes in the same style (`add column if not exists`, `drop ... if exists` then `create`).
