@@ -1,0 +1,38 @@
+name: Apply Supabase schema
+
+# Re-runs supabase/schema.sql against the database whenever it changes on main.
+# The file is idempotent (create ... if not exists / drop ... if exists), so
+# running it again on an existing project is safe.
+on:
+  push:
+    branches: [main]
+    paths:
+      - supabase/schema.sql
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-schema
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check secret
+        run: |
+          if [ -z "$SUPABASE_DB_URL" ]; then
+            echo "::error::Add the SUPABASE_DB_URL repository secret (see README → Automatic schema updates)."
+            exit 1
+          fi
+
+      - name: Apply schema
+        # All-or-nothing: any error rolls the whole file back.
+        run: psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 --single-transaction -f supabase/schema.sql
