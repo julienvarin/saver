@@ -110,8 +110,14 @@ amount and a title. It's added to this month's income and split like your salary
 pays you back for part of a specific expense, mark that expense **Reimbursable** instead.
 
 Each expense is **Need**, **Want** or **Save** (money put aside). A late bill or overdue invoice
-is just a **Need**. The Stats screen shows what's left in Wants (and per day), whether you're
-ahead of pace, needs after upcoming bills, and how much you're on track to save.
+is just a **Need**. The Stats card is three bars — solid is what's spent (or saved), hatched is
+what's still planned:
+
+- **Wants** — spent, plus subscriptions still to come. The white line is today: stay left of it.
+- **Needs** — paid so far, plus bills still to pay this month.
+- **Save** — put aside so far, plus the buffer you'll still have at payday if wants end on budget.
+
+An amount turns red when the month is heading over budget (or under the savings target).
 
 > Upgrading? Re-run [`supabase/schema.sql`](supabase/schema.sql) once (the workflow does it on
 > merge) — it adds the `budgets` table and its columns, and turns old **Debt** entries into

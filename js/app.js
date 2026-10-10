@@ -1063,7 +1063,7 @@ function bar(kind, used, reserved, total, markerPct) {
   return track;
 }
 
-function bucket(kind, label, spent, target, sub, opts) {
+function bucket(kind, label, spent, target, opts) {
   opts = opts || {};
   const b = el("div", "b-bucket");
   // tap a bucket to filter the list below by it
@@ -1075,14 +1075,10 @@ function bucket(kind, label, spent, target, sub, opts) {
   name.appendChild(el("span", "dot " + kind));
   name.appendChild(document.createTextNode(label));
   top.appendChild(name);
-  top.appendChild(el("span", "b-amt", euro0(spent) + " / " + euro0(target)));
+  const over = kind === "save" ? opts.low : spent + (opts.reserved || 0) > target;
+  top.appendChild(el("span", "b-amt" + (over ? " bad" : ""), euro0(spent) + " / " + euro0(target)));
   b.appendChild(top);
   b.appendChild(bar(kind, spent, opts.reserved || 0, target, opts.marker));
-  if (sub) {
-    const s = el("div", "b-sub" + (opts.bad ? " bad" : opts.good ? " good" : ""));
-    s.textContent = sub;
-    b.appendChild(s);
-  }
   return b;
 }
 
@@ -1119,7 +1115,6 @@ async function renderBudget(rows) {
   const today = daysElapsed(period);                       // day number within the period
   const dim = Math.max(1, daysBetween(period.start, period.estEnd)); // period length (estimated while open)
   const late = current && today > dim;                     // next salary expected but not logged yet
-  const daysLeft = current ? Math.max(1, dim - today + 1) : 0;
   const todayDate = startOfDay(new Date());
 
   let needSpent = 0, wantSpent = 0, saved = 0, extra = 0;
@@ -1155,57 +1150,26 @@ async function renderBudget(rows) {
   const unpaid = (kind) => current ? bills.filter((b) => b.kind === kind && !b.paid).reduce((s, b) => s + b.amount, 0) : 0;
   const upcoming = unpaid("need");
   const upcomingWant = unpaid("want");
-  // subscriptions are fixed: keep them out of the day-to-day wants pace
-  const wantBills = bills.filter((b) => b.kind === "want");
-  const wantFixed = wantBills.reduce((s, b) => s + b.amount, 0);
-  const wantFixedPaid = wantFixed - wantBills.filter((b) => !b.paid).reduce((s, b) => s + b.amount, 0);
 
+  // Three bars, no prose: solid = spent / saved, hatched = still planned.
   const card = el("div", "bcard");
   $(".nw").hidden = true;
+  if (late) card.appendChild(el("div", "b-late", "Payday was expected — log your salary"));
 
-  // headline: what's left for wants, after subscriptions still to come
-  const wantLeft = wantBudget - wantSpent - upcomingWant;
-  const head = el("div", "b-head");
-  head.appendChild(el("div", "stat-total-label", wantLeft >= 0 ? "Wants left" : "Wants over budget"));
-  head.appendChild(el("div", "b-head-amt" + (wantLeft < 0 ? " bad" : ""), euro0(Math.abs(wantLeft))));
-  if (late) {
-    head.appendChild(el("div", "stat-perday", "Payday was expected — log your salary to start the new month"));
-  } else if (current && wantLeft > 0) {
-    head.appendChild(el("div", "stat-perday",
-      euro0(Math.floor(wantLeft / daysLeft)) + " / day · ~" + daysLeft + " day" + (daysLeft > 1 ? "s" : "") + " to payday"));
-  }
-  card.appendChild(head);
+  // wants: spent + subscriptions still to come, with a "today" marker for pace
+  card.appendChild(bucket("want", "Wants", wantSpent, wantBudget,
+    { reserved: upcomingWant, marker: current ? (today / dim) * 100 : null }));
 
-  // wants, with a "today" pace marker for the current month
-  let wantSub, wantBad = false, wantGood = false;
-  if (current) {
-    const pace = Math.max(0, wantBudget - wantFixed) * Math.min(1, today / dim);
-    const diff = pace - Math.max(0, wantSpent - wantFixedPaid);
-    wantSub = diff >= 0 ? euro0(diff) + " under pace for today" : euro0(-diff) + " ahead of pace — slow down";
-    wantBad = diff < 0; wantGood = diff >= 0;
-  } else {
-    wantSub = wantLeft >= 0 ? euro0(wantLeft) + " unspent" : euro0(-wantLeft) + " over";
-    wantBad = wantLeft < 0; wantGood = wantLeft >= 0;
-  }
-  if (upcomingWant > 0) wantSub = euro0(upcomingWant) + " of subscriptions to come · " + wantSub;
-  card.appendChild(bucket("want", "Wants " + budget.want_pct + "%", wantSpent, wantBudget, wantSub,
-    { reserved: upcomingWant, marker: current ? (today / dim) * 100 : null, bad: wantBad, good: wantGood }));
+  // needs: paid so far + bills still planned this month
+  card.appendChild(bucket("need", "Needs", needSpent, needBudget, { reserved: upcoming }));
 
-  // needs, with unpaid bills reserved
-  const needFree = needBudget - needSpent - upcoming;
-  let needSub = upcoming > 0 ? euro0(upcoming) + " of bills still to pay · " : "";
-  needSub += needFree >= 0 ? euro0(needFree) + " free" : euro0(-needFree) + " over";
-  card.appendChild(bucket("need", "Needs " + budget.need_pct + "%", needSpent, needBudget, needSub,
-    { reserved: upcoming, bad: needFree < 0 }));
-
-  // savings: what's logged, and where the month is heading
+  // save: put aside so far + the buffer you'd still have left at payday if
+  // wants end on budget (or wherever they are, if already over)
   const projected = current
     ? income - needSpent - upcoming - Math.max(wantSpent + upcomingWant, wantBudget)
     : income - needSpent - wantSpent;
-  let saveSub = saved ? "Saved " + euro0(saved) + " · " : "";
-  saveSub += (current ? "On track for " : "Left over ") + euro0(projected);
-  card.appendChild(bucket("save", "Save " + budget.save_pct + "%", saved, saveTarget, saveSub,
-    { bad: projected < saveTarget, good: projected >= saveTarget }));
+  card.appendChild(bucket("save", "Save", saved, saveTarget,
+    { reserved: Math.max(0, projected - saved), low: projected < saveTarget }));
 
   const foot = el("div", "b-foot");
   const inLabel = (extra ? " + " + euro0(extra) + " in" : "") + (expected ? " + " + euro0(expected) + " expected" : "");

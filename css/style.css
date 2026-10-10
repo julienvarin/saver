@@ -426,15 +426,14 @@ button.badge { border: none; cursor: pointer; font-family: inherit; }
   padding: 16px; margin: 4px 0 20px;
 }
 .bcard.empty { display: flex; flex-direction: column; gap: 12px; align-items: center; text-align: center; }
-.b-head { text-align: center; padding: 2px 0 14px; }
-.b-head-amt { font-size: 40px; font-weight: 700; letter-spacing: -0.02em; margin-top: 2px; color: var(--want); }
-.b-head-amt.bad { color: var(--danger); }
+.b-late { color: var(--danger); font-size: 14px; text-align: center; padding-bottom: 4px; }
 .b-bucket { margin-top: 10px; padding: 4px 8px 6px; margin-left: -8px; margin-right: -8px; border-radius: 12px; cursor: pointer; transition: opacity .15s ease; }
 .b-bucket.active { background: var(--surface-2); }
 .b-bucket.dim { opacity: .4; }
 .b-top { display: flex; justify-content: space-between; align-items: center; font-size: 15px; margin-bottom: 7px; }
 .b-name { display: flex; align-items: center; gap: 8px; font-weight: 600; }
 .b-amt { color: var(--muted); font-size: 14px; }
+.b-amt.bad { color: var(--danger); }
 .b-track { position: relative; display: flex; height: 10px; border-radius: 999px; background: var(--surface-2); overflow: visible; }
 .b-fill { height: 100%; border-radius: 999px 0 0 999px; transition: width .35s ease; }
 .b-fill.need { background: var(--need); }
@@ -445,10 +444,9 @@ button.badge { border: none; cursor: pointer; font-family: inherit; }
   background-image: repeating-linear-gradient(135deg, currentColor 0 4px, transparent 4px 8px); }
 .b-reserved.need { color: var(--need); }
 .b-reserved.want { color: var(--want); }
+.b-reserved.save { color: var(--save); }
 .b-marker { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; background: var(--text); border-radius: 2px; }
-.b-sub { color: var(--muted); font-size: 13px; margin-top: 6px; }
-.b-sub.good { color: var(--need); }
-.b-sub.bad, .plan-sub.bad, .hint.bad { color: var(--danger); }
+.plan-sub.bad, .hint.bad { color: var(--danger); }
 .b-foot {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
   color: var(--muted); font-size: 12px; margin-top: 14px; text-transform: uppercase; letter-spacing: .05em;
