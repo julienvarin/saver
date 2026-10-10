@@ -14,6 +14,7 @@ const LS = {
   key: "saver.sb_key",
   cats: "saver.custom_cats",
   billsOpen: "saver.bills_open",
+  reimbFull: "saver.reimb_full",
 };
 
 // Custom categories you've used before. Learned from your saved expenses
@@ -89,7 +90,6 @@ const entry = {
   title: "",
   categories: [],
   kind: null,
-  split: false,
   reimbursable: false,
   reimbursed: false,
   reimbAmount: "",  // raw input; empty = fully reimbursable
@@ -107,7 +107,6 @@ function resetEntry() {
   entry.title = "";
   entry.categories = [];
   entry.kind = null;
-  entry.split = false;
   entry.reimbursable = false;
   entry.reimbursed = false;
   entry.reimbAmount = "";
@@ -150,15 +149,13 @@ function updateProgress(stepId) {
   $("#progress").textContent = label;
 }
 
-/* need/want + flag toggles (split / reimbursable / received) */
+/* need/want + flag toggles (reimbursable / received) */
 // hint: kind remembered for the typed title, highlighted until you pick one
 function updateKindUI(hint) {
   const k = entry.kind || hint;
   $$(".kind-btn").forEach((b) => b.classList.toggle("selected", k === b.dataset.kind));
 }
 function updateFlagsUI() {
-  const s = $("#split-toggle");
-  if (s) s.classList.toggle("active", !!entry.split);
   const r = $("#reimb-toggle");
   if (r) r.classList.toggle("active", !!entry.reimbursable);
   const rec = $("#received-toggle");
@@ -186,7 +183,6 @@ function updateDateUI() {
     : parseDay(entry.date).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
   $(".date-chip").classList.toggle("set", entry.date !== toDateInput(today));
 }
-function toggleSplit() { entry.split = !entry.split; haptic(); updateFlagsUI(); }
 function toggleReimb() {
   entry.reimbursable = !entry.reimbursable;
   if (!entry.reimbursable) entry.reimbursed = false; // received only makes sense if reimbursable
@@ -490,7 +486,6 @@ async function saveExpense() {
     title: entry.title || null,
     categories: entry.categories,
     kind: entry.kind,
-    split: entry.split,
     reimbursable: entry.reimbursable,
     reimbursed: entry.reimbursable ? entry.reimbursed : false,
   };
@@ -696,10 +691,9 @@ function changeMonth(delta) {
   loadHistory();
 }
 
-// What you actually paid out of pocket (a split expense is your half).
+// What you paid out of pocket.
 function paidAmount(r) {
-  const a = Number(r.amount) || 0;
-  return r.split ? a / 2 : a;
+  return Number(r.amount) || 0;
 }
 // How much of the expense gets paid back (null reimb_amount = all of it).
 function reimbAmount(r) {
@@ -711,8 +705,9 @@ function isPartialReimb(r) {
   return !!r.reimbursable && r.reimb_amount != null && Number(r.reimb_amount) < (Number(r.amount) || 0);
 }
 // What counts toward your spend: reimbursed money isn't really yours.
+// The Stats card can switch to counting reimbursable expenses in full.
 function netAmount(r) {
-  return r.reimbursable ? Math.max(0, paidAmount(r) - reimbAmount(r)) : paidAmount(r);
+  return r.reimbursable && !reimbFull ? Math.max(0, paidAmount(r) - reimbAmount(r)) : paidAmount(r);
 }
 // Money still owed back to you, until marked received.
 function pendingReimb(r) {
@@ -726,7 +721,6 @@ function openEdit(r) {
   entry.amount = Math.round(Number(r.amount) || 0);
   entry.title = r.title || "";
   entry.kind = r.kind || null;
-  entry.split = !!r.split;
   entry.reimbursable = !!r.reimbursable;
   entry.reimbursed = !!r.reimbursed;
   entry.reimbAmount = isPartialReimb(r) ? String(Number(r.reimb_amount)) : "";
@@ -917,7 +911,6 @@ function renderItem(r) {
 
   const sub = document.createElement("div");
   sub.className = "hi-sub";
-  if (r.split) sub.appendChild(makeBadge("½ split", "split"));
   if (r.reimbursable) {
     const part = isPartialReimb(r) ? " " + formatEuro(reimbAmount(r)) : "";
     if (r.reimbursed) sub.appendChild(makeBadge("↩︎" + part + " back", "reimb-done"));
@@ -965,20 +958,6 @@ function renderItem(r) {
   amt.textContent = formatEuro(r.reimbursable && !fullReimb ? netAmount(r) : paidAmount(r));
   el.appendChild(amt);
 
-  // quick split toggle
-  const split = document.createElement("button");
-  split.className = "hi-act split" + (r.split ? " active" : "");
-  split.textContent = "½";
-  split.setAttribute("aria-label", "Split with partner");
-  split.addEventListener("click", async (e) => {
-    e.stopPropagation();
-    const { error } = await sb.from("expenses").update({ split: !r.split }).eq("id", r.id);
-    if (error) { toast(error.message, true); return; }
-    haptic();
-    loadHistory();
-  });
-  el.appendChild(split);
-
   el.appendChild(deleteBtn(r));
   return el;
 }
@@ -1010,6 +989,7 @@ const DEFAULT_BUDGET = { need_pct: 50, want_pct: 30, save_pct: 20, incomes: {}, 
 let budget = Object.assign({}, DEFAULT_BUDGET);
 let budgetLoaded = false;
 let budgetMissing = false; // the budgets table isn't created yet (old schema)
+let reimbFull = (() => { try { return !!localStorage.getItem(LS.reimbFull); } catch (e) { return false; } })();
 let billsOpen = (() => { try { return !!localStorage.getItem(LS.billsOpen); } catch (e) { return false; } })();
 
 // Budget figures are shown in whole euros.
@@ -1115,7 +1095,7 @@ async function renderBudget(rows) {
     const btn = el("button", "btn primary small", "+ Salary received");
     btn.addEventListener("click", startSalary);
     c.appendChild(btn);
-    const setup = el("button", "btn ghost small", "Bills, subscriptions & split");
+    const setup = el("button", "btn ghost small", "Bills, subscriptions & budget");
     setup.addEventListener("click", () => openBudgetSettings());
     c.appendChild(setup);
     wrap.appendChild(c);
@@ -1137,10 +1117,12 @@ async function renderBudget(rows) {
     else wantSpent += a; // wants (and anything untagged)
   });
 
-  const income = salary + extra; // extra money in is split like salary
-  const needBudget = income * budget.need_pct / 100;
-  const wantBudget = income * budget.want_pct / 100;
-  const saveTarget = income * budget.save_pct / 100;
+  // the salary is split by the percentages; money in (a sub-tenant's rent…) only
+  // goes to needs, since it pays bills back out
+  const income = salary + extra;
+  const needBudget = salary * budget.need_pct / 100 + extra;
+  const wantBudget = salary * budget.want_pct / 100;
+  const saveTarget = salary * budget.save_pct / 100;
 
   // bills: paid this period when a need / want with the same name exists; due on
   // the first occurrence of their day on/after payday. Unpaid ones are reserved
@@ -1200,6 +1182,20 @@ async function renderBudget(rows) {
     actBtn("+ New salary", startSalary);
   }
   actBtn("Edit budget", () => openBudgetSettings());
+  // reimbursable expenses: count what's left on you, or the full amount
+  if (rows.some((r) => r.reimbursable)) {
+    const t = el("button", "plan-act toggle" + (reimbFull ? " active" : ""), reimbFull ? "↩︎ Full amount" : "↩︎ After refund");
+    t.type = "button";
+    t.addEventListener("click", () => {
+      haptic();
+      reimbFull = !reimbFull;
+      try { localStorage.setItem(LS.reimbFull, reimbFull ? "1" : ""); } catch (e) {}
+      renderStats(statsRows);
+      renderList(statsRows);
+      renderBudget(statsRows);
+    });
+    acts.appendChild(t);
+  }
   card.appendChild(acts);
   wrap.appendChild(card);
 
@@ -1605,7 +1601,6 @@ function wire() {
   });
 
   // flags + kind (tapping a kind saves)
-  $("#split-toggle").addEventListener("click", toggleSplit);
   $("#reimb-toggle").addEventListener("click", toggleReimb);
   $("#received-toggle").addEventListener("click", toggleReceived);
   $("#reimb-amt").addEventListener("input", (e) => (entry.reimbAmount = e.target.value));

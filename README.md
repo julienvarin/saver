@@ -92,7 +92,8 @@ Tap **Edit budget** on the Stats card (or **⚙** at the top of Stats) to set:
 - **Salary received** — each salary starts a new budget month, running until the next one
   lands (so a salary on the 3rd gives a 3rd → 2nd month). Tap **+ New salary** on the Stats
   card when it arrives. Before your first salary, Stats uses calendar months.
-- **Split** — Needs / Wants / Save (default 50 / 30 / 20). Money in is split like your salary.
+- **Split** — how your salary divides into Needs / Wants / Save (default 50 / 30 / 20). Money in
+  (e.g. a sub-tenant's rent) goes to Needs only, since it pays bills back out.
 - **Bills & subscriptions** — recurring payments with their usual day. Tap the **Need / Want**
   toggle on each: rent and electricity are needs, Spotify is a want. Unpaid ones are reserved
   from their own budget (due on the first occurrence of their day after payday); tap **Paid**
@@ -104,7 +105,7 @@ Tap **Edit budget** on the Stats card (or **⚙** at the top of Stats) to set:
 **Money in** (a sub-tenant paying you, a refund, a side job): tap **+ Money in** on the Stats
 card. Sources you've logged before show up as chips with their last amount — one tap logs it
 again. For a new one, type a title, tap **Save**, then the amount. It's added to this month's
-income and split like your salary. Tap **+ €… in** on the Stats card to list what came in, and
+income and added to your Needs budget. Tap **+ €… in** on the Stats card to list what came in, and
 edit or delete it from there. If someone
 pays you back for part of a specific expense, mark that expense **Reimbursable** instead.
 
@@ -118,6 +119,9 @@ what's still planned:
   budget. Its number is where the month should end up.
 
 A bar that goes past its line gets an outline: red for Needs / Wants, green for Save.
+
+When the month has reimbursable expenses, a small **↩︎ After refund / Full amount** toggle on the
+card switches how they count: only what's left on you after the refund, or the whole amount.
 
 > Upgrading? Re-run [`supabase/schema.sql`](supabase/schema.sql) once (the workflow does it on
 > merge) — it adds the `budgets` table, and turns old **Debt** entries into

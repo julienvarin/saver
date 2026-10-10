@@ -26,6 +26,9 @@ alter table public.expenses drop constraint if exists expenses_kind_check;
 update public.expenses set kind = 'need' where kind = 'debt';
 alter table public.expenses add constraint expenses_kind_check check (kind in ('need', 'want', 'save', 'income'));
 
+-- Split is gone: a split expense now just records your half (amount halved once, flag cleared).
+update public.expenses set amount = round(amount / 2, 2), split = false where split;
+
 -- Fast lookups for the history screen (newest first, per user).
 create index if not exists expenses_user_created_idx
   on public.expenses (user_id, created_at desc);
