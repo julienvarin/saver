@@ -7,7 +7,7 @@ create table if not exists public.expenses (
   amount      numeric(12, 2) not null check (amount >= 0),
   title       text,
   categories    text[] not null default '{}',
-  kind          text check (kind in ('need', 'want', 'debt', 'save', 'income')),
+  kind          text check (kind in ('need', 'want', 'save', 'income')),
   split         boolean not null default false,
   reimbursable  boolean not null default false,
   reimbursed    boolean not null default false,
@@ -20,10 +20,11 @@ alter table public.expenses add column if not exists split        boolean not nu
 alter table public.expenses add column if not exists reimbursable boolean not null default false;
 alter table public.expenses add column if not exists reimbursed   boolean not null default false;
 alter table public.expenses add column if not exists reimb_amount numeric(12, 2) check (reimb_amount >= 0);
--- allow 'debt' (repaying a debt / overdue invoice), 'save' (money put aside)
--- and 'income' (extra money in on top of salary, e.g. a sub-tenant paying you)
+-- kinds: 'need', 'want', 'save' (money put aside) and 'income' (extra money in on top of
+-- salary, e.g. a sub-tenant paying you). The old 'debt' kind is gone: a late bill is just a need.
 alter table public.expenses drop constraint if exists expenses_kind_check;
-alter table public.expenses add constraint expenses_kind_check check (kind in ('need', 'want', 'debt', 'save', 'income'));
+update public.expenses set kind = 'need' where kind = 'debt';
+alter table public.expenses add constraint expenses_kind_check check (kind in ('need', 'want', 'save', 'income'));
 
 -- Fast lookups for the history screen (newest first, per user).
 create index if not exists expenses_user_created_idx
@@ -52,7 +53,7 @@ create policy "own rows - delete" on public.expenses
 --   incomes: {"2026-10": 2500, ...}  monthly income; a month without one uses the latest earlier month
 --   bills:   [{"name": "Rent", "amount": 800, "day": 5, "kind": "need"}, ...]  planned monthly bills
 --            and subscriptions; kind "need" (default) or "want"
---   debts:   [{"name": "Tax", "amount": 600}, ...]  debts to repay (total owed)
+--   debts:   no longer used (kept so old data isn't lost)
 create table if not exists public.budgets (
   user_id    uuid primary key references auth.users (id) on delete cascade default auth.uid(),
   need_pct   numeric(5, 2) not null default 50,

@@ -247,7 +247,7 @@ body {
 
 /* need / want */
 .kind-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.kind-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.kind-row { display: grid; grid-template-columns: 1fr; gap: 12px; }
 .kind-btn.selected { border-color: var(--accent); background: var(--surface-2); }
 .kind-btn {
   border: 1px solid #2a2a35;
@@ -269,7 +269,7 @@ body {
 .kind-btn .k-emoji { font-size: 34px; }
 .kind-btn.need .k-emoji { color: var(--need); }
 .kind-btn.want .k-emoji { color: var(--want); }
-.kind-btn.debt .k-emoji, .kind-btn.save .k-emoji { color: var(--save); }
+.kind-btn.save .k-emoji { color: var(--save); }
 
 /* saved */
 .step.saved { align-items: center; justify-content: center; text-align: center; }
@@ -369,7 +369,7 @@ body {
 .hi-kind { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
 .hi-kind.need { background: var(--need); }
 .hi-kind.want { background: var(--want); }
-.hi-kind.debt, .hi-kind.save { background: var(--save); }
+.hi-kind.save { background: var(--save); }
 .hi-main { flex: 1; min-width: 0; cursor: pointer; }
 .hi-title { font-size: 16px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hi-sub { display: flex; align-items: center; gap: 6px; margin-top: 3px; min-width: 0; }
@@ -426,9 +426,7 @@ button.badge { border: none; cursor: pointer; font-family: inherit; }
   padding: 16px; margin: 4px 0 20px;
 }
 .bcard.empty { display: flex; flex-direction: column; gap: 12px; align-items: center; text-align: center; }
-.b-head { text-align: center; padding: 2px 0 14px; }
-.b-head-amt { font-size: 40px; font-weight: 700; letter-spacing: -0.02em; margin-top: 2px; color: var(--want); }
-.b-head-amt.bad { color: var(--danger); }
+.b-late { color: var(--danger); font-size: 14px; text-align: center; padding-bottom: 4px; }
 .b-bucket { margin-top: 10px; padding: 4px 8px 6px; margin-left: -8px; margin-right: -8px; border-radius: 12px; cursor: pointer; transition: opacity .15s ease; }
 .b-bucket.active { background: var(--surface-2); }
 .b-bucket.dim { opacity: .4; }
@@ -440,15 +438,15 @@ button.badge { border: none; cursor: pointer; font-family: inherit; }
 .b-fill.need { background: var(--need); }
 .b-fill.want { background: var(--want); }
 .b-fill.save { background: var(--save); }
-.b-fill.over { background: var(--danger); border-radius: 999px; }
+.b-track.past { outline: 2px solid var(--danger); outline-offset: 2px; }
+.b-track.past.good { outline-color: var(--need); }
 .b-reserved { height: 100%; opacity: .45;
   background-image: repeating-linear-gradient(135deg, currentColor 0 4px, transparent 4px 8px); }
 .b-reserved.need { color: var(--need); }
 .b-reserved.want { color: var(--want); }
+.b-reserved.save { color: var(--save); }
 .b-marker { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; background: var(--text); border-radius: 2px; }
-.b-sub { color: var(--muted); font-size: 13px; margin-top: 6px; }
-.b-sub.good { color: var(--need); }
-.b-sub.bad, .plan-sub.bad, .hint.bad { color: var(--danger); }
+.plan-sub.bad, .hint.bad { color: var(--danger); }
 .b-foot {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
   color: var(--muted); font-size: 12px; margin-top: 14px; text-transform: uppercase; letter-spacing: .05em;
@@ -456,7 +454,7 @@ button.badge { border: none; cursor: pointer; font-family: inherit; }
 .b-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .plan-name .dot { width: 8px; height: 8px; margin-right: 8px; vertical-align: middle; }
 
-/* bills + debts rows */
+/* bills + money-in rows */
 .plan-row {
   display: flex; align-items: center; gap: 12px;
   background: var(--surface); border-radius: 14px; padding: 12px 14px; margin-bottom: 8px;
