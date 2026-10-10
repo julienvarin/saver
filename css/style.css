@@ -433,13 +433,13 @@ button.badge { border: none; cursor: pointer; font-family: inherit; }
 .b-top { display: flex; justify-content: space-between; align-items: center; font-size: 15px; margin-bottom: 7px; }
 .b-name { display: flex; align-items: center; gap: 8px; font-weight: 600; }
 .b-amt { color: var(--muted); font-size: 14px; }
-.b-amt.bad { color: var(--danger); }
 .b-track { position: relative; display: flex; height: 10px; border-radius: 999px; background: var(--surface-2); overflow: visible; }
 .b-fill { height: 100%; border-radius: 999px 0 0 999px; transition: width .35s ease; }
 .b-fill.need { background: var(--need); }
 .b-fill.want { background: var(--want); }
 .b-fill.save { background: var(--save); }
-.b-fill.over { background: var(--danger); border-radius: 999px; }
+.b-track.past { outline: 2px solid var(--danger); outline-offset: 2px; }
+.b-track.past.good { outline-color: var(--need); }
 .b-reserved { height: 100%; opacity: .45;
   background-image: repeating-linear-gradient(135deg, currentColor 0 4px, transparent 4px 8px); }
 .b-reserved.need { color: var(--need); }
@@ -471,7 +471,6 @@ button.badge { border: none; cursor: pointer; font-family: inherit; }
 }
 .plan-act:active { transform: scale(0.95); }
 .plan-act.done { background: rgba(52, 211, 153, .18); color: var(--need); }
-.plan-amt.income { color: var(--need); }
 #budget .section-label { margin-top: 18px; }
 
 /* ---- budget settings ---- */

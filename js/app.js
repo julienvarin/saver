@@ -95,7 +95,7 @@ const entry = {
   date: "",         // YYYY-MM-DD, defaults to today
   createdAt: null,  // original created_at of the expense being edited
   editId: null, // set when editing an existing expense
-  quick: false, // prefilled entry (salary, money in received): the amount step saves
+  quick: false, // prefilled entry (salary): the amount step saves
   prefilled: false, // amount was prefilled: the first key press replaces it
   catsTouched: false, // categories picked by hand: don't overwrite them from a known title
   fromStats: false, // started from the Stats screen: go back there once saved
@@ -125,7 +125,7 @@ function resetEntry() {
   updateAmountBtn();
 }
 
-// The amount step saves directly for prefilled flows (salary, money in received).
+// The amount step saves directly for prefilled flows (salary).
 function updateAmountBtn() {
   $("#amount-next").textContent = entry.quick ? "Save" : "Next";
 }
@@ -143,8 +143,7 @@ function updateProgress(stepId) {
     "step-saved": "",
   };
   let label = map[stepId] || "";
-  const mode = entry.quick && entry.kind === "income" ? entry.title
-    : { income: "Money in", salary: "New salary" }[entry.kind] || "";
+  const mode = { income: "Money in", salary: "New salary" }[entry.kind] || "";
   if (mode && label) label = mode + " · " + label;
   if (entry.editId && label) label = "Edit · " + label;
   $("#progress").textContent = label;
@@ -358,7 +357,7 @@ function rememberCats(cats) {
 async function refreshSavedCats() {
   const { data, error } = await sb
     .from("expenses")
-    .select("title, categories, kind, created_at")
+    .select("title, amount, categories, kind, created_at")
     .order("created_at", { ascending: false })
     .limit(2000);
   if (error || !data) return;
@@ -371,7 +370,7 @@ async function refreshSavedCats() {
 }
 
 /* ---- remembered titles: one tap re-logs "Lidl · Groceries · Need" ---- */
-let known = new Map(); // norm(title) -> { key, title, categories, kind, count }, most recent first
+let known = new Map(); // norm(title) -> { key, title, amount, categories, kind, count }, most recent first
 
 // Case, accent and spacing-insensitive key ("  loyer " == "Loyer").
 function norm(s) {
@@ -386,7 +385,7 @@ function learnTitles(rows) {
     if (!key || !r.kind) return;
     const k = next.get(key);
     if (k) k.count++;
-    else next.set(key, { key, title: r.title.trim(), categories: r.categories || [], kind: r.kind, count: 1 });
+    else next.set(key, { key, title: r.title.trim(), amount: Number(r.amount) || 0, categories: r.categories || [], kind: r.kind, count: 1 });
   });
   known = next;
 }
@@ -397,7 +396,7 @@ function rememberTitle(rec) {
   if (!key || !rec.kind) return;
   const old = known.get(key);
   known.delete(key);
-  known = new Map([[key, { key, title: rec.title.trim(), categories: rec.categories || [], kind: rec.kind, count: (old ? old.count : 0) + 1 }]].concat(Array.from(known)));
+  known = new Map([[key, { key, title: rec.title.trim(), amount: Number(rec.amount) || 0, categories: rec.categories || [], kind: rec.kind, count: (old ? old.count : 0) + 1 }]].concat(Array.from(known)));
 }
 
 function renderSuggest() {
@@ -415,8 +414,10 @@ function renderSuggest() {
     b.type = "button";
     b.appendChild(el("span", "dot " + (k.kind === "income" ? "need" : k.kind)));
     b.appendChild(el("span", "sg-title", k.title));
-    if (k.categories.length) b.appendChild(el("span", "sg-cats", k.categories.join(" · ")));
+    if (income) b.appendChild(el("span", "sg-cats", "+" + formatEuro(k.amount)));
+    else if (k.categories.length) b.appendChild(el("span", "sg-cats", k.categories.join(" · ")));
     b.addEventListener("click", () => {
+      if (!entry.amount) entry.amount = Math.round(k.amount); // money in: same as last time
       entry.title = k.title;
       entry.categories = k.categories.slice();
       entry.kind = k.kind;
@@ -552,7 +553,7 @@ async function saveSalary() {
   const incomes = Object.assign({}, budget.incomes, { [entry.date]: entry.amount });
   const next = {
     user_id: user.id, need_pct: budget.need_pct, want_pct: budget.want_pct, save_pct: budget.save_pct,
-    incomes, bills: budget.bills || [], extras: budget.extras || [], updated_at: new Date().toISOString(),
+    incomes, bills: budget.bills || [], updated_at: new Date().toISOString(),
   };
   const { error } = await sb.from("budgets").upsert(next);
   if (error) { toast(error.message, true); return; }
@@ -1000,7 +1001,7 @@ function deleteBtn(r) {
 /* ------------------------------------------------------------------ */
 /*  Budget: salary + money in, need / want / savings split, bills      */
 /* ------------------------------------------------------------------ */
-const DEFAULT_BUDGET = { need_pct: 50, want_pct: 30, save_pct: 20, incomes: {}, bills: [], extras: [] };
+const DEFAULT_BUDGET = { need_pct: 50, want_pct: 30, save_pct: 20, incomes: {}, bills: [] };
 let budget = Object.assign({}, DEFAULT_BUDGET);
 let budgetLoaded = false;
 let budgetMissing = false; // the budgets table isn't created yet (old schema)
@@ -1025,7 +1026,7 @@ async function loadBudget() {
   budgetLoaded = true;
 }
 
-// An expense belongs to a bill / money in when its title or a category has the same
+// An expense belongs to a bill when its title or a category has the same
 // name (ignoring case, accents and extra spaces).
 function matchesName(r, name) {
   const k = norm(name);
@@ -1041,13 +1042,14 @@ function el(tag, cls, text) {
   return e;
 }
 
-// A progress bar: solid fill, optional reserved segment, optional "today" marker.
-function bar(kind, used, reserved, total, markerPct) {
-  const track = el("div", "b-track");
+// A progress bar: solid fill, optional reserved segment, optional "today" marker,
+// optional outline when it goes past the line ("bad" or "good").
+function bar(kind, used, reserved, total, markerPct, past) {
+  const track = el("div", "b-track" + (past ? " past " + past : ""));
   const t = total > 0 ? total : 1;
   const usedPct = Math.min(100, (used / t) * 100);
   const resPct = Math.min(100 - usedPct, (reserved / t) * 100);
-  const fill = el("div", "b-fill " + kind + (used > total ? " over" : ""));
+  const fill = el("div", "b-fill " + kind);
   fill.style.width = usedPct + "%";
   track.appendChild(fill);
   if (resPct > 0) {
@@ -1075,10 +1077,13 @@ function bucket(kind, label, spent, target, opts) {
   name.appendChild(el("span", "dot " + kind));
   name.appendChild(document.createTextNode(label));
   top.appendChild(name);
-  const over = kind === "save" ? opts.low : spent + (opts.reserved || 0) > target;
-  top.appendChild(el("span", "b-amt" + (over ? " bad" : ""), euro0(spent) + " / " + euro0(target)));
+  // save shows where the month ends up; needs / wants what's spent
+  const shown = opts.total != null ? opts.total : spent;
+  top.appendChild(el("span", "b-amt", euro0(shown) + " / " + euro0(target)));
   b.appendChild(top);
-  b.appendChild(bar(kind, spent, opts.reserved || 0, target, opts.marker));
+  const past = kind === "save" ? (shown >= target ? "good" : null)
+    : spent + (opts.reserved || 0) > target ? "bad" : null;
+  b.appendChild(bar(kind, spent, opts.reserved || 0, target, opts.marker, past));
   return b;
 }
 
@@ -1126,16 +1131,7 @@ async function renderBudget(rows) {
     else wantSpent += a; // wants (and anything untagged)
   });
 
-  // monthly money in (sub-tenant…): received once a money-in entry with the same
-  // name exists this period. Until then it's expected, so the current month's
-  // budget already counts it.
-  const extras = (budget.extras || []).map((x) => ({
-    name: x.name, amount: Number(x.amount) || 0, due: dueDate(x.day, period.start),
-    received: rows.some((r) => isIncome(r) && matchesName(r, x.name)),
-  }));
-  const expected = current ? extras.filter((x) => !x.received).reduce((s, x) => s + x.amount, 0) : 0;
-
-  const income = salary + extra + expected; // money in is split like salary
+  const income = salary + extra; // extra money in is split like salary
   const needBudget = income * budget.need_pct / 100;
   const wantBudget = income * budget.want_pct / 100;
   const saveTarget = income * budget.save_pct / 100;
@@ -1169,11 +1165,10 @@ async function renderBudget(rows) {
     ? income - needSpent - upcoming - Math.max(wantSpent + upcomingWant, wantBudget)
     : income - needSpent - wantSpent;
   card.appendChild(bucket("save", "Save", saved, saveTarget,
-    { reserved: Math.max(0, projected - saved), low: projected < saveTarget }));
+    { reserved: Math.max(0, projected - saved), total: projected }));
 
   const foot = el("div", "b-foot");
-  const inLabel = (extra ? " + " + euro0(extra) + " in" : "") + (expected ? " + " + euro0(expected) + " expected" : "");
-  foot.appendChild(el("span", "", "Salary " + euro0(salary) + inLabel + " · " +
+  foot.appendChild(el("span", "", "Salary " + euro0(salary) + (extra ? " + " + euro0(extra) + " in" : "") + " · " +
     period.start.toLocaleDateString(undefined, { day: "numeric", month: "short" })));
   card.appendChild(foot);
   const acts = el("div", "b-acts");
@@ -1216,26 +1211,6 @@ async function renderBudget(rows) {
     });
   }
 
-  // monthly money in (current month only)
-  if (current && extras.length) {
-    wrap.appendChild(el("div", "section-label", "Money in"));
-    extras.slice().sort((a, b) => (a.due ? a.due.getTime() : Infinity) - (b.due ? b.due.getTime() : Infinity)).forEach((x) => {
-      const row = el("div", "plan-row" + (x.received ? " done" : ""));
-      const main = el("div", "plan-main");
-      main.appendChild(el("div", "plan-name", x.name));
-      main.appendChild(el("div", "plan-sub", x.received ? "Received" : dueLabel(x.due, todayDate, "Not received yet")));
-      row.appendChild(main);
-      row.appendChild(el("div", "plan-amt income", "+" + euro0(x.amount)));
-      if (x.received) row.appendChild(el("span", "plan-act done", "✓"));
-      else {
-        const got = el("button", "plan-act", "Received");
-        got.type = "button";
-        got.addEventListener("click", () => startExtraReceived(x));
-        row.appendChild(got);
-      }
-      wrap.appendChild(row);
-    });
-  }
 }
 
 // The first occurrence of a day of the month on/after payday, or null.
@@ -1274,31 +1249,21 @@ async function logBill(b) {
   loadHistory();
 }
 
-// Monthly money in received: the keypad is prefilled with the usual amount, Save logs it.
-function startExtraReceived(x) {
-  haptic();
-  resetEntry();
-  entry.title = x.name;
-  entry.kind = "income";
-  entry.quick = true;
-  entry.fromStats = true;
-  entry.amount = Math.round(x.amount);
-  entry.prefilled = true;
-  $("#title-input").value = x.name;
-  renderAmount();
-  updateAmountBtn();
-  showScreen("screen-entry");
-  showStep("step-amount");
-}
-
-// Extra money in: amount, then a title, then saved.
+// Extra money in: opens on the details step, where past sources are one tap
+// (same amount as last time). A new one: type the title, Save, then the amount.
 function startIncome() {
   haptic();
   resetEntry();
   entry.kind = "income";
   entry.fromStats = true;
   showScreen("screen-entry");
-  showStep("step-amount");
+  enterDetails();
+}
+
+// Money in saved from the details step: ask for the amount first if it's missing.
+function saveIncome() {
+  if (!entry.amount) { toast("Enter an amount", true); showStep("step-amount"); return; }
+  saveExpense();
 }
 
 /* ---- budget settings screen ---- */
@@ -1334,15 +1299,6 @@ function addBillRow(b) {
   row.appendChild(kind);
   row.appendChild(removeBtn(row));
   $("#bs-bills").appendChild(row);
-}
-
-function addExtraRow(x) {
-  const row = el("div", "edit-row");
-  row.appendChild(inputCell("er-name", x.name, "Sub-tenant"));
-  row.appendChild(inputCell("er-amt", x.amount, "€", "decimal"));
-  row.appendChild(inputCell("er-day", x.day, "Day", "numeric"));
-  row.appendChild(removeBtn(row));
-  $("#bs-extras").appendChild(row);
 }
 
 function updateSplitHint() {
@@ -1392,9 +1348,7 @@ async function openBudgetSettings() {
   $("#bs-save").value = budget.save_pct;
   updateSplitHint();
   $("#bs-bills").innerHTML = "";
-  $("#bs-extras").innerHTML = "";
   (budget.bills || []).forEach(addBillRow);
-  (budget.extras || []).forEach(addExtraRow);
   budgetDirty = false;
   showScreen("screen-budget");
   $("#screen-budget .hist-scroll").scrollTop = 0;
@@ -1423,21 +1377,12 @@ async function saveBudgetSettings() {
     const day = parseInt(row.querySelector(".er-day").value, 10);
     bills.push({ name, amount, day: day >= 1 && day <= 31 ? day : null, kind: row.dataset.kind === "want" ? "want" : "need" });
   }
-  const extras = [];
-  for (const row of $$("#bs-extras .edit-row")) {
-    const name = row.querySelector(".er-name").value.trim();
-    if (!name) continue;
-    const amount = parseMoney(row.querySelector(".er-amt").value);
-    if (amount == null) { toast("Invalid amount for " + name, true); return; }
-    const day = parseInt(row.querySelector(".er-day").value, 10);
-    extras.push({ name, amount, day: day >= 1 && day <= 31 ? day : null });
-  }
 
   const { data: { user } } = await sb.auth.getUser();
   if (!user) { showScreen("screen-auth"); return; }
   const next = {
     user_id: user.id, need_pct: pcts[0], want_pct: pcts[1], save_pct: pcts[2],
-    incomes, bills, extras, updated_at: new Date().toISOString(),
+    incomes, bills, updated_at: new Date().toISOString(),
   };
   const { error } = await sb.from("budgets").upsert(next);
   if (error) { toast(error.message, true); return; }
@@ -1617,9 +1562,9 @@ function wire() {
   $("#title-input").addEventListener("keydown", (e) => {
     if (e.key !== "Enter") return;
     e.preventDefault();
-    if (entry.kind === "income") saveExpense(); else e.target.blur();
+    if (entry.kind === "income") saveIncome(); else e.target.blur();
   });
-  $("#det-save").addEventListener("click", saveExpense);
+  $("#det-save").addEventListener("click", saveIncome);
   $("#cat-custom").addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); addCustomCategory(e.target.value); }
   });
@@ -1658,7 +1603,6 @@ function wire() {
   });
   $("#bs-add-bill").addEventListener("click", () => addBillRow({}));
   $("#bs-add-salary").addEventListener("click", () => addSalaryRow({ date: toDateInput(new Date()) }, true));
-  $("#bs-add-extra").addEventListener("click", () => addExtraRow({}));
   $("#bs-save-btn").addEventListener("click", saveBudgetSettings);
   ["#bs-need", "#bs-want", "#bs-save"].forEach((id) => $(id).addEventListener("input", updateSplitHint));
 

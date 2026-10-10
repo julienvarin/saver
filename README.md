@@ -92,12 +92,7 @@ Tap **Edit budget** on the Stats card (or **⚙** at the top of Stats) to set:
 - **Salary received** — each salary starts a new budget month, running until the next one
   lands (so a salary on the 3rd gives a 3rd → 2nd month). Tap **+ New salary** on the Stats
   card when it arrives. Before your first salary, Stats uses calendar months.
-- **Monthly money in** — money you get every month on top of your salary (a sub-tenant paying
-  you rent, …) with its usual day. Your budget month still starts on payday; until it arrives,
-  this money is counted as *expected*, so the month's Needs / Wants / Save budgets already include
-  it. Tap **Received** on the Stats card when it lands (the keypad is prefilled with the usual
-  amount — change it if they paid a different amount).
-- **Split** — Needs / Wants / Save (default 50 / 30 / 20). Salary and money in are both split this way.
+- **Split** — Needs / Wants / Save (default 50 / 30 / 20). Money in is split like your salary.
 - **Bills & subscriptions** — recurring payments with their usual day. Tap the **Need / Want**
   toggle on each: rent and electricity are needs, Spotify is a want. Unpaid ones are reserved
   from their own budget (due on the first occurrence of their day after payday); tap **Paid**
@@ -105,8 +100,10 @@ Tap **Edit budget** on the Stats card (or **⚙** at the top of Stats) to set:
 
 **+ New salary** opens the keypad with your last salary; tap **Save** (or type the new amount).
 
-**One-off money in** (a refund, a side job): tap **+ Money in** on the Stats card, type the
-amount and a title. It's added to this month's income and split like your salary. If someone
+**Money in** (a sub-tenant paying you, a refund, a side job): tap **+ Money in** on the Stats
+card. Sources you've logged before show up as chips with their last amount — one tap logs it
+again. For a new one, type a title, tap **Save**, then the amount. It's added to this month's
+income and split like your salary. If someone
 pays you back for part of a specific expense, mark that expense **Reimbursable** instead.
 
 Each expense is **Need**, **Want** or **Save** (money put aside). A late bill or overdue invoice
@@ -115,12 +112,13 @@ what's still planned:
 
 - **Wants** — spent, plus subscriptions still to come. The white line is today: stay left of it.
 - **Needs** — paid so far, plus bills still to pay this month.
-- **Save** — put aside so far, plus the buffer you'll still have at payday if wants end on budget.
+- **Save** — put aside so far, plus the buffer you'll still have at payday if wants end on
+  budget. Its number is where the month should end up.
 
-An amount turns red when the month is heading over budget (or under the savings target).
+A bar that goes past its line gets an outline: red for Needs / Wants, green for Save.
 
 > Upgrading? Re-run [`supabase/schema.sql`](supabase/schema.sql) once (the workflow does it on
-> merge) — it adds the `budgets` table and its columns, and turns old **Debt** entries into
+> merge) — it adds the `budgets` table, and turns old **Debt** entries into
 > **Need**s. It's safe to run on an existing project.
 
 ## Customising
