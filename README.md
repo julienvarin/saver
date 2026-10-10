@@ -92,27 +92,30 @@ Tap **Edit budget** on the Stats card (or **⚙** at the top of Stats) to set:
 - **Salary received** — each salary starts a new budget month, running until the next one
   lands (so a salary on the 3rd gives a 3rd → 2nd month). Tap **+ New salary** on the Stats
   card when it arrives. Before your first salary, Stats uses calendar months.
-- **Split** — Needs / Wants / Save + debt (default 50 / 30 / 20).
+- **Monthly money in** — money you get every month on top of your salary (a sub-tenant paying
+  you rent, …) with its usual day. Your budget month still starts on payday; until it arrives,
+  this money is counted as *expected*, so the month's Needs / Wants / Save budgets already include
+  it. Tap **Received** on the Stats card when it lands (the keypad is prefilled with the usual
+  amount — change it if they paid a different amount).
+- **Split** — Needs / Wants / Save (default 50 / 30 / 20). Salary and money in are both split this way.
 - **Bills & subscriptions** — recurring payments with their usual day. Tap the **Need / Want**
   toggle on each: rent and electricity are needs, Spotify is a want. Unpaid ones are reserved
   from their own budget (due on the first occurrence of their day after payday); tap **Paid**
   to log one. Want subscriptions are left out of the day-to-day "pace" so they don't skew it.
-- **Debts** — what you still owe. Tap **Pay** to log a repayment (amount only).
 
 **+ New salary** opens the keypad with your last salary; tap **Save** (or type the new amount).
 
-**Extra money in** (a sub-tenant paying you, a refund, a side job): tap **+ Money in** on the
-Stats card, type the amount and a title. It's added to this month's income and split like
-your salary. If someone pays you back for part of a specific expense, mark that expense
-**Reimbursable** instead.
+**One-off money in** (a refund, a side job): tap **+ Money in** on the Stats card, type the
+amount and a title. It's added to this month's income and split like your salary. If someone
+pays you back for part of a specific expense, mark that expense **Reimbursable** instead.
 
-Each expense is now **Need**, **Want**, **Debt** (repaying a debt / overdue invoice) or
-**Save** (money put aside). Debt and Save both count toward the savings share.
-The Stats screen shows what's left in Wants (and per day), whether you're ahead of pace,
-needs after upcoming bills, and how much you're on track to save.
+Each expense is **Need**, **Want** or **Save** (money put aside). A late bill or overdue invoice
+is just a **Need**. The Stats screen shows what's left in Wants (and per day), whether you're
+ahead of pace, needs after upcoming bills, and how much you're on track to save.
 
-> Upgrading? Re-run [`supabase/schema.sql`](supabase/schema.sql) once — it adds the
-> `budgets` table and the new expense kinds. It's safe to run on an existing project.
+> Upgrading? Re-run [`supabase/schema.sql`](supabase/schema.sql) once (the workflow does it on
+> merge) — it adds the `budgets` table and its columns, and turns old **Debt** entries into
+> **Need**s. It's safe to run on an existing project.
 
 ## Customising
 

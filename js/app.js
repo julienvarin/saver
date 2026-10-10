@@ -95,7 +95,7 @@ const entry = {
   date: "",         // YYYY-MM-DD, defaults to today
   createdAt: null,  // original created_at of the expense being edited
   editId: null, // set when editing an existing expense
-  quick: false, // prefilled entry (debt repayment, salary): the amount step saves
+  quick: false, // prefilled entry (salary, money in received): the amount step saves
   prefilled: false, // amount was prefilled: the first key press replaces it
   catsTouched: false, // categories picked by hand: don't overwrite them from a known title
   fromStats: false, // started from the Stats screen: go back there once saved
@@ -125,7 +125,7 @@ function resetEntry() {
   updateAmountBtn();
 }
 
-// The amount step saves directly for prefilled flows (debt repayment, salary).
+// The amount step saves directly for prefilled flows (salary, money in received).
 function updateAmountBtn() {
   $("#amount-next").textContent = entry.quick ? "Save" : "Next";
 }
@@ -143,7 +143,8 @@ function updateProgress(stepId) {
     "step-saved": "",
   };
   let label = map[stepId] || "";
-  const mode = { income: "Money in", salary: "New salary" }[entry.kind] || (entry.quick && entry.kind === "debt" ? "Repay " + entry.title : "");
+  const mode = entry.quick && entry.kind === "income" ? entry.title
+    : { income: "Money in", salary: "New salary" }[entry.kind] || "";
   if (mode && label) label = mode + " · " + label;
   if (entry.editId && label) label = "Edit · " + label;
   $("#progress").textContent = label;
@@ -412,7 +413,7 @@ function renderSuggest() {
   list.slice(0, 6).forEach((k) => {
     const b = el("button", "sg-chip");
     b.type = "button";
-    b.appendChild(el("span", "dot " + (k.kind === "debt" ? "save" : k.kind === "income" ? "need" : k.kind)));
+    b.appendChild(el("span", "dot " + (k.kind === "income" ? "need" : k.kind)));
     b.appendChild(el("span", "sg-title", k.title));
     if (k.categories.length) b.appendChild(el("span", "sg-cats", k.categories.join(" · ")));
     b.addEventListener("click", () => {
@@ -551,7 +552,7 @@ async function saveSalary() {
   const incomes = Object.assign({}, budget.incomes, { [entry.date]: entry.amount });
   const next = {
     user_id: user.id, need_pct: budget.need_pct, want_pct: budget.want_pct, save_pct: budget.save_pct,
-    incomes, bills: budget.bills || [], debts: budget.debts || [], updated_at: new Date().toISOString(),
+    incomes, bills: budget.bills || [], extras: budget.extras || [], updated_at: new Date().toISOString(),
   };
   const { error } = await sb.from("budgets").upsert(next);
   if (error) { toast(error.message, true); return; }
@@ -588,8 +589,8 @@ let statsPeriod = null;                   // shown period, see periodFor()
 let statsRows = [];                        // cached rows for the shown period
 let statsFilter = { type: null, value: null }; // null | 'kind'|'need'/'want'/'saving' | 'category'|name
 
-// Debt repayments and money put aside both go to the savings bucket.
-function isSaving(r) { return r.kind === "debt" || r.kind === "save"; }
+// Money put aside goes to the savings bucket.
+function isSaving(r) { return r.kind === "save"; }
 // Extra money in (sub-tenant, refund, side job): adds to the month's income, never spending.
 function isIncome(r) { return r.kind === "income"; }
 
@@ -783,7 +784,7 @@ function renderStats(rows) {
 
   // label + clear affordance reflect the active filter
   const label = !statsFilter.type ? "Total spent"
-    : statsFilter.type === "kind" ? ({ need: "Needs", want: "Wants", saving: "Saved + debt" }[statsFilter.value])
+    : statsFilter.type === "kind" ? ({ need: "Needs", want: "Wants", saving: "Saved" }[statsFilter.value])
     : statsFilter.type === "pending" ? "Waiting to get back"
     : statsFilter.value;
   $("#stat-label").textContent = label;
@@ -997,13 +998,12 @@ function deleteBtn(r) {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Budget: monthly income, need / want / savings split, bills, debts  */
+/*  Budget: salary + money in, need / want / savings split, bills      */
 /* ------------------------------------------------------------------ */
-const DEFAULT_BUDGET = { need_pct: 50, want_pct: 30, save_pct: 20, incomes: {}, bills: [], debts: [] };
+const DEFAULT_BUDGET = { need_pct: 50, want_pct: 30, save_pct: 20, incomes: {}, bills: [], extras: [] };
 let budget = Object.assign({}, DEFAULT_BUDGET);
 let budgetLoaded = false;
 let budgetMissing = false; // the budgets table isn't created yet (old schema)
-let debtRows = [];         // all-time debt repayments, for debt progress
 
 // Budget figures are shown in whole euros.
 function euro0(n) { return formatEuro(Math.round(Number(n) || 0)); }
@@ -1025,16 +1025,7 @@ async function loadBudget() {
   budgetLoaded = true;
 }
 
-async function loadDebtRows() {
-  if (!(budget.debts || []).length) { debtRows = []; return; }
-  const { data, error } = await sb
-    .from("expenses")
-    .select("amount, split, reimbursable, reimb_amount, title, categories, kind, created_at")
-    .eq("kind", "debt");
-  debtRows = error ? [] : (data || []);
-}
-
-// An expense belongs to a bill / debt when its title or a category has the same
+// An expense belongs to a bill / money in when its title or a category has the same
 // name (ignoring case, accents and extra spaces).
 function matchesName(r, name) {
   const k = norm(name);
@@ -1098,7 +1089,6 @@ function bucket(kind, label, spent, target, sub, opts) {
 async function renderBudget(rows) {
   const wrap = $("#budget");
   if (!budgetLoaded) await loadBudget();
-  await loadDebtRows();
   if (statsRows !== rows) return; // a newer month loaded meanwhile
   wrap.innerHTML = "";
 
@@ -1132,17 +1122,25 @@ async function renderBudget(rows) {
   const daysLeft = current ? Math.max(1, dim - today + 1) : 0;
   const todayDate = startOfDay(new Date());
 
-  let needSpent = 0, wantSpent = 0, debtPaid = 0, saved = 0, extra = 0;
+  let needSpent = 0, wantSpent = 0, saved = 0, extra = 0;
   rows.forEach((r) => {
     const a = netAmount(r);
     if (isIncome(r)) extra += Number(r.amount) || 0;
     else if (r.kind === "need") needSpent += a;
-    else if (r.kind === "debt") debtPaid += a;
     else if (r.kind === "save") saved += a;
     else wantSpent += a; // wants (and anything untagged)
   });
 
-  const income = salary + extra; // extra money in is split like salary
+  // monthly money in (sub-tenant…): received once a money-in entry with the same
+  // name exists this period. Until then it's expected, so the current month's
+  // budget already counts it.
+  const extras = (budget.extras || []).map((x) => ({
+    name: x.name, amount: Number(x.amount) || 0, due: dueDate(x.day, period.start),
+    received: rows.some((r) => isIncome(r) && matchesName(r, x.name)),
+  }));
+  const expected = current ? extras.filter((x) => !x.received).reduce((s, x) => s + x.amount, 0) : 0;
+
+  const income = salary + extra + expected; // money in is split like salary
   const needBudget = income * budget.need_pct / 100;
   const wantBudget = income * budget.want_pct / 100;
   const saveTarget = income * budget.save_pct / 100;
@@ -1150,18 +1148,10 @@ async function renderBudget(rows) {
   // bills: paid this period when a need / want with the same name exists; due on
   // the first occurrence of their day on/after payday. Unpaid ones are reserved
   // from their own bucket (needs, or wants for subscriptions).
-  const bills = (budget.bills || []).map((b) => {
-    const day = Number(b.day) || null;
-    let due = null;
-    if (day) {
-      due = new Date(period.start.getFullYear(), period.start.getMonth(), day);
-      if (due < period.start) due = new Date(period.start.getFullYear(), period.start.getMonth() + 1, day);
-    }
-    return {
-      name: b.name, amount: Number(b.amount) || 0, due, kind: billKind(b),
-      paid: rows.some((r) => (r.kind === "need" || r.kind === "want") && matchesName(r, b.name)),
-    };
-  });
+  const bills = (budget.bills || []).map((b) => ({
+    name: b.name, amount: Number(b.amount) || 0, due: dueDate(b.day, period.start), kind: billKind(b),
+    paid: rows.some((r) => (r.kind === "need" || r.kind === "want") && matchesName(r, b.name)),
+  }));
   const unpaid = (kind) => current ? bills.filter((b) => b.kind === kind && !b.paid).reduce((s, b) => s + b.amount, 0) : 0;
   const upcoming = unpaid("need");
   const upcomingWant = unpaid("want");
@@ -1208,18 +1198,18 @@ async function renderBudget(rows) {
   card.appendChild(bucket("need", "Needs " + budget.need_pct + "%", needSpent, needBudget, needSub,
     { reserved: upcoming, bad: needFree < 0 }));
 
-  // savings + debt: what's logged, and where the month is heading
-  const logged = debtPaid + saved;
+  // savings: what's logged, and where the month is heading
   const projected = current
     ? income - needSpent - upcoming - Math.max(wantSpent + upcomingWant, wantBudget)
     : income - needSpent - wantSpent;
-  let saveSub = (debtPaid ? "Debt " + euro0(debtPaid) + " · " : "") + (saved ? "Saved " + euro0(saved) + " · " : "");
+  let saveSub = saved ? "Saved " + euro0(saved) + " · " : "";
   saveSub += (current ? "On track for " : "Left over ") + euro0(projected);
-  card.appendChild(bucket("save", "Save + debt " + budget.save_pct + "%", logged, saveTarget, saveSub,
+  card.appendChild(bucket("save", "Save " + budget.save_pct + "%", saved, saveTarget, saveSub,
     { bad: projected < saveTarget, good: projected >= saveTarget }));
 
   const foot = el("div", "b-foot");
-  foot.appendChild(el("span", "", "Salary " + euro0(salary) + (extra ? " + " + euro0(extra) + " in" : "") + " · " +
+  const inLabel = (extra ? " + " + euro0(extra) + " in" : "") + (expected ? " + " + euro0(expected) + " expected" : "");
+  foot.appendChild(el("span", "", "Salary " + euro0(salary) + inLabel + " · " +
     period.start.toLocaleDateString(undefined, { day: "numeric", month: "short" })));
   card.appendChild(foot);
   const acts = el("div", "b-acts");
@@ -1247,12 +1237,8 @@ async function renderBudget(rows) {
       name.appendChild(el("span", "dot " + b.kind));
       name.appendChild(document.createTextNode(b.name));
       main.appendChild(name);
-      let when = "";
-      const inDays = b.due ? daysBetween(todayDate, b.due) : null;
-      if (b.paid) when = "Paid";
-      else if (b.due) when = inDays < 0 ? "Was due " + b.due.toLocaleDateString(undefined, { day: "numeric", month: "short" })
-        : inDays === 0 ? "Due today" : "Due in " + inDays + " day" + (inDays > 1 ? "s" : "");
-      main.appendChild(el("div", "plan-sub" + (!b.paid && inDays != null && inDays < 0 ? " bad" : ""), when || "Not paid yet"));
+      const overdue = !b.paid && b.due && b.due < todayDate;
+      main.appendChild(el("div", "plan-sub" + (overdue ? " bad" : ""), b.paid ? "Paid" : dueLabel(b.due, todayDate, "Not paid yet")));
       row.appendChild(main);
       row.appendChild(el("div", "plan-amt", euro0(b.amount)));
       if (b.paid) row.appendChild(el("span", "plan-act done", "✓"));
@@ -1266,32 +1252,43 @@ async function renderBudget(rows) {
     });
   }
 
-  // debts: progress since each debt was added
-  if ((budget.debts || []).length) {
-    wrap.appendChild(el("div", "section-label", "Debts"));
-    budget.debts.forEach((d) => {
-      const owed = Number(d.amount) || 0;
-      const since = d.since ? new Date(d.since + "T00:00:00") : null;
-      const paid = debtRows
-        .filter((r) => matchesName(r, d.name) && (!since || new Date(r.created_at) >= since))
-        .reduce((s, r) => s + netAmount(r), 0);
-      const left = Math.max(0, owed - paid);
-      const row = el("div", "plan-row debt" + (left === 0 ? " done" : ""));
+  // monthly money in (current month only)
+  if (current && extras.length) {
+    wrap.appendChild(el("div", "section-label", "Money in"));
+    extras.slice().sort((a, b) => (a.due ? a.due.getTime() : Infinity) - (b.due ? b.due.getTime() : Infinity)).forEach((x) => {
+      const row = el("div", "plan-row" + (x.received ? " done" : ""));
       const main = el("div", "plan-main");
-      main.appendChild(el("div", "plan-name", d.name));
-      main.appendChild(el("div", "plan-sub", left === 0 ? "Repaid 🎉" : euro0(paid) + " repaid of " + euro0(owed)));
-      main.appendChild(bar("save", paid, 0, owed));
+      main.appendChild(el("div", "plan-name", x.name));
+      main.appendChild(el("div", "plan-sub", x.received ? "Received" : dueLabel(x.due, todayDate, "Not received yet")));
       row.appendChild(main);
-      row.appendChild(el("div", "plan-amt", euro0(left)));
-      if (left > 0) {
-        const pay = el("button", "plan-act", "Pay");
-        pay.type = "button";
-        pay.addEventListener("click", () => startDebtPayment(d.name));
-        row.appendChild(pay);
+      row.appendChild(el("div", "plan-amt income", "+" + euro0(x.amount)));
+      if (x.received) row.appendChild(el("span", "plan-act done", "✓"));
+      else {
+        const got = el("button", "plan-act", "Received");
+        got.type = "button";
+        got.addEventListener("click", () => startExtraReceived(x));
+        row.appendChild(got);
       }
       wrap.appendChild(row);
     });
   }
+}
+
+// The first occurrence of a day of the month on/after payday, or null.
+function dueDate(day, start) {
+  day = Number(day) || null;
+  if (!day) return null;
+  let due = new Date(start.getFullYear(), start.getMonth(), day);
+  if (due < start) due = new Date(start.getFullYear(), start.getMonth() + 1, day);
+  return due;
+}
+
+// "Due in 3 days" / "Due today" / "Was due 5 Oct", or the fallback without a day.
+function dueLabel(due, today, fallback) {
+  if (!due) return fallback;
+  const inDays = daysBetween(today, due);
+  return inDays < 0 ? "Was due " + due.toLocaleDateString(undefined, { day: "numeric", month: "short" })
+    : inDays === 0 ? "Due today" : "Due in " + inDays + " day" + (inDays > 1 ? "s" : "");
 }
 
 // Bills are needs unless marked as a want (subscriptions).
@@ -1313,14 +1310,18 @@ async function logBill(b) {
   loadHistory();
 }
 
-// Open the entry flow prefilled for a debt repayment: just type the amount and Save.
-function startDebtPayment(name) {
+// Monthly money in received: the keypad is prefilled with the usual amount, Save logs it.
+function startExtraReceived(x) {
+  haptic();
   resetEntry();
-  entry.title = name;
-  entry.kind = "debt";
+  entry.title = x.name;
+  entry.kind = "income";
   entry.quick = true;
   entry.fromStats = true;
-  $("#title-input").value = name;
+  entry.amount = Math.round(x.amount);
+  entry.prefilled = true;
+  $("#title-input").value = x.name;
+  renderAmount();
   updateAmountBtn();
   showScreen("screen-entry");
   showStep("step-amount");
@@ -1371,13 +1372,13 @@ function addBillRow(b) {
   $("#bs-bills").appendChild(row);
 }
 
-function addDebtRow(d) {
+function addExtraRow(x) {
   const row = el("div", "edit-row");
-  row.dataset.since = d.since || toDateInput(new Date());
-  row.appendChild(inputCell("er-name", d.name, "Who / what"));
-  row.appendChild(inputCell("er-amt wide", d.amount, "€ owed", "decimal"));
+  row.appendChild(inputCell("er-name", x.name, "Sub-tenant"));
+  row.appendChild(inputCell("er-amt", x.amount, "€", "decimal"));
+  row.appendChild(inputCell("er-day", x.day, "Day", "numeric"));
   row.appendChild(removeBtn(row));
-  $("#bs-debts").appendChild(row);
+  $("#bs-extras").appendChild(row);
 }
 
 function updateSplitHint() {
@@ -1427,9 +1428,9 @@ async function openBudgetSettings() {
   $("#bs-save").value = budget.save_pct;
   updateSplitHint();
   $("#bs-bills").innerHTML = "";
-  $("#bs-debts").innerHTML = "";
+  $("#bs-extras").innerHTML = "";
   (budget.bills || []).forEach(addBillRow);
-  (budget.debts || []).forEach(addDebtRow);
+  (budget.extras || []).forEach(addExtraRow);
   budgetDirty = false;
   showScreen("screen-budget");
   $("#screen-budget .hist-scroll").scrollTop = 0;
@@ -1458,20 +1459,21 @@ async function saveBudgetSettings() {
     const day = parseInt(row.querySelector(".er-day").value, 10);
     bills.push({ name, amount, day: day >= 1 && day <= 31 ? day : null, kind: row.dataset.kind === "want" ? "want" : "need" });
   }
-  const debts = [];
-  for (const row of $$("#bs-debts .edit-row")) {
+  const extras = [];
+  for (const row of $$("#bs-extras .edit-row")) {
     const name = row.querySelector(".er-name").value.trim();
     if (!name) continue;
     const amount = parseMoney(row.querySelector(".er-amt").value);
     if (amount == null) { toast("Invalid amount for " + name, true); return; }
-    debts.push({ name, amount, since: row.dataset.since });
+    const day = parseInt(row.querySelector(".er-day").value, 10);
+    extras.push({ name, amount, day: day >= 1 && day <= 31 ? day : null });
   }
 
   const { data: { user } } = await sb.auth.getUser();
   if (!user) { showScreen("screen-auth"); return; }
   const next = {
     user_id: user.id, need_pct: pcts[0], want_pct: pcts[1], save_pct: pcts[2],
-    incomes, bills, debts, updated_at: new Date().toISOString(),
+    incomes, bills, extras, updated_at: new Date().toISOString(),
   };
   const { error } = await sb.from("budgets").upsert(next);
   if (error) { toast(error.message, true); return; }
@@ -1692,7 +1694,7 @@ function wire() {
   });
   $("#bs-add-bill").addEventListener("click", () => addBillRow({}));
   $("#bs-add-salary").addEventListener("click", () => addSalaryRow({ date: toDateInput(new Date()) }, true));
-  $("#bs-add-debt").addEventListener("click", () => addDebtRow({}));
+  $("#bs-add-extra").addEventListener("click", () => addExtraRow({}));
   $("#bs-save-btn").addEventListener("click", saveBudgetSettings);
   ["#bs-need", "#bs-want", "#bs-save"].forEach((id) => $(id).addEventListener("input", updateSplitHint));
 

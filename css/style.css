@@ -247,7 +247,7 @@ body {
 
 /* need / want */
 .kind-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.kind-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.kind-row { display: grid; grid-template-columns: 1fr; gap: 12px; }
 .kind-btn.selected { border-color: var(--accent); background: var(--surface-2); }
 .kind-btn {
   border: 1px solid #2a2a35;
@@ -269,7 +269,7 @@ body {
 .kind-btn .k-emoji { font-size: 34px; }
 .kind-btn.need .k-emoji { color: var(--need); }
 .kind-btn.want .k-emoji { color: var(--want); }
-.kind-btn.debt .k-emoji, .kind-btn.save .k-emoji { color: var(--save); }
+.kind-btn.save .k-emoji { color: var(--save); }
 
 /* saved */
 .step.saved { align-items: center; justify-content: center; text-align: center; }
@@ -369,7 +369,7 @@ body {
 .hi-kind { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
 .hi-kind.need { background: var(--need); }
 .hi-kind.want { background: var(--want); }
-.hi-kind.debt, .hi-kind.save { background: var(--save); }
+.hi-kind.save { background: var(--save); }
 .hi-main { flex: 1; min-width: 0; cursor: pointer; }
 .hi-title { font-size: 16px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hi-sub { display: flex; align-items: center; gap: 6px; margin-top: 3px; min-width: 0; }
@@ -456,7 +456,7 @@ button.badge { border: none; cursor: pointer; font-family: inherit; }
 .b-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .plan-name .dot { width: 8px; height: 8px; margin-right: 8px; vertical-align: middle; }
 
-/* bills + debts rows */
+/* bills + money-in rows */
 .plan-row {
   display: flex; align-items: center; gap: 12px;
   background: var(--surface); border-radius: 14px; padding: 12px 14px; margin-bottom: 8px;
@@ -473,6 +473,7 @@ button.badge { border: none; cursor: pointer; font-family: inherit; }
 }
 .plan-act:active { transform: scale(0.95); }
 .plan-act.done { background: rgba(52, 211, 153, .18); color: var(--need); }
+.plan-amt.income { color: var(--need); }
 #budget .section-label { margin-top: 18px; }
 
 /* ---- budget settings ---- */
