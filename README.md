@@ -132,7 +132,10 @@ are mostly fixed bills, so they'd dwarf everything else; tap the Needs bar to se
 
 ## Customising
 
-- **Categories:** edit the `CATEGORIES` array at the top of [`js/app.js`](js/app.js). Any category you add with **+** is remembered automatically and shows up as a quick-pick chip from then on.
+- **Categories:** the chips are the categories you actually use, most used first — one you never
+  use doesn't show up. Add one with **+**. Before your first expense you get the starter list in
+  `CATEGORIES` at the top of [`js/app.js`](js/app.js); retired names (Food, Drinks, Subscriptions)
+  are mapped to their new ones in `RENAMED` just below it.
 - **Colours / look:** the CSS variables at the top of [`css/style.css`](css/style.css).
 - **App icon:** re-run `python3 scripts/gen_icons.py` after tweaking the colours in that script.
 
