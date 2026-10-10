@@ -5,7 +5,7 @@
 /* ------------------------------------------------------------------ */
 // Edit this list to change your categories.
 const CATEGORIES = [
-  "Food", "Groceries", "Transport", "Shopping",
+  "Eat out", "Groceries", "Transport", "Shopping",
   "Bills", "Health", "Fun", "Travel", "Other",
 ];
 
