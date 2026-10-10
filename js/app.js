@@ -13,6 +13,7 @@ const LS = {
   url: "saver.sb_url",
   key: "saver.sb_key",
   cats: "saver.custom_cats",
+  billsOpen: "saver.bills_open",
 };
 
 // Custom categories you've used before. Learned from your saved expenses
@@ -600,6 +601,7 @@ function matchesFilter(r) {
   if (statsFilter.type === "kind") return statsFilter.value === "saving" ? isSaving(r) : r.kind === statsFilter.value;
   if (statsFilter.type === "category") return (r.categories || []).includes(statsFilter.value);
   if (statsFilter.type === "pending") return pendingReimb(r) > 0;
+  if (statsFilter.type === "income") return isIncome(r);
   return true;
 }
 
@@ -770,7 +772,7 @@ function renderStats(rows) {
   let total = 0, need = 0, want = 0, saved = 0, pending = 0;
   const pendingView = statsFilter.type === "pending";
   filtered.forEach((r) => {
-    if (isIncome(r)) return;
+    if (isIncome(r)) { if (statsFilter.type === "income") total += Number(r.amount) || 0; return; }
     if (pendingView) total += pendingReimb(r); // what's still owed back
     else if (statsFilter.type || !isSaving(r)) total += netAmount(r);
     if (r.kind === "need") need += netAmount(r);
@@ -787,6 +789,7 @@ function renderStats(rows) {
   const label = !statsFilter.type ? "Total spent"
     : statsFilter.type === "kind" ? ({ need: "Needs", want: "Wants", saving: "Saved" }[statsFilter.value])
     : statsFilter.type === "pending" ? "Waiting to get back"
+    : statsFilter.type === "income" ? "Money in"
     : statsFilter.value;
   $("#stat-label").textContent = label;
   $("#stat-clear").hidden = !statsFilter.type;
@@ -816,6 +819,7 @@ function renderStats(rows) {
     item.classList.toggle("active", kindFilter && statsFilter.value === filterKey[k]);
     item.classList.toggle("dim", kindFilter && statsFilter.value !== filterKey[k]);
   });
+  $$(".b-in").forEach((b) => b.classList.toggle("active", statsFilter.type === "income"));
   // the budget buckets filter too
   $$(".b-bucket[data-filter]").forEach((b) => {
     b.classList.toggle("active", kindFilter && statsFilter.value === b.dataset.filter);
@@ -877,7 +881,8 @@ function renderList(rows) {
 
   const sub = document.createElement("div");
   sub.className = "hist-sub";
-  sub.textContent = statsFilter.type ? (shown.length + " expense" + (shown.length > 1 ? "s" : "")) : "All entries";
+  const noun = statsFilter.type === "income" ? " entr" + (shown.length > 1 ? "ies" : "y") : " expense" + (shown.length > 1 ? "s" : "");
+  sub.textContent = statsFilter.type ? shown.length + noun : "All entries";
   list.appendChild(sub);
 
   let lastDay = null;
@@ -1005,6 +1010,7 @@ const DEFAULT_BUDGET = { need_pct: 50, want_pct: 30, save_pct: 20, incomes: {}, 
 let budget = Object.assign({}, DEFAULT_BUDGET);
 let budgetLoaded = false;
 let budgetMissing = false; // the budgets table isn't created yet (old schema)
+let billsOpen = (() => { try { return !!localStorage.getItem(LS.billsOpen); } catch (e) { return false; } })();
 
 // Budget figures are shown in whole euros.
 function euro0(n) { return formatEuro(Math.round(Number(n) || 0)); }
@@ -1168,8 +1174,19 @@ async function renderBudget(rows) {
     { reserved: Math.max(0, projected - saved), total: projected }));
 
   const foot = el("div", "b-foot");
-  foot.appendChild(el("span", "", "Salary " + euro0(salary) + (extra ? " + " + euro0(extra) + " in" : "") + " · " +
+  foot.appendChild(el("span", "", "Salary " + euro0(salary) + " · " +
     period.start.toLocaleDateString(undefined, { day: "numeric", month: "short" })));
+  if (extra) {
+    // tap to list the money in below (edit or delete it from there)
+    const inBtn = el("button", "b-in" + (statsFilter.type === "income" ? " active" : ""), "+ " + euro0(extra) + " in ›");
+    inBtn.type = "button";
+    inBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      setFilter("income", true);
+      $("#stat-total").scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    foot.appendChild(inBtn);
+  }
   card.appendChild(foot);
   const acts = el("div", "b-acts");
   const actBtn = (label, fn) => {
@@ -1186,9 +1203,24 @@ async function renderBudget(rows) {
   card.appendChild(acts);
   wrap.appendChild(card);
 
-  // bills checklist (current month only)
+  // bills checklist (current month only), collapsed behind a summary header
   if (current && bills.length) {
-    wrap.appendChild(el("div", "section-label", "Bills & subscriptions"));
+    const toPay = bills.filter((b) => !b.paid);
+    const head = el("button", "fold-head" + (billsOpen ? " open" : ""));
+    head.type = "button";
+    head.appendChild(el("span", "", "Bills & subscriptions"));
+    head.appendChild(el("span", "fold-sum", toPay.length
+      ? toPay.length + " to pay · " + euro0(toPay.reduce((s, b) => s + b.amount, 0)) : "All paid ✓"));
+    const list = el("div", "fold-body");
+    list.hidden = !billsOpen;
+    head.addEventListener("click", () => {
+      billsOpen = !billsOpen;
+      try { localStorage.setItem(LS.billsOpen, billsOpen ? "1" : ""); } catch (e) {}
+      head.classList.toggle("open", billsOpen);
+      list.hidden = !billsOpen;
+    });
+    wrap.appendChild(head);
+    wrap.appendChild(list);
     bills.slice().sort((a, b) => (a.due ? a.due.getTime() : Infinity) - (b.due ? b.due.getTime() : Infinity)).forEach((b) => {
       const row = el("div", "plan-row" + (b.paid ? " done" : ""));
       const main = el("div", "plan-main");
@@ -1207,7 +1239,7 @@ async function renderBudget(rows) {
         pay.addEventListener("click", () => logBill(b));
         row.appendChild(pay);
       }
-      wrap.appendChild(row);
+      list.appendChild(row);
     });
   }
 
