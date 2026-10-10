@@ -29,6 +29,14 @@ alter table public.expenses add constraint expenses_kind_check check (kind in ('
 -- Split is gone: a split expense now just records your half (amount halved once, flag cleared).
 update public.expenses set amount = round(amount / 2, 2), split = false where split;
 
+-- Category clean-up: drinks are fun, and subscriptions are just bills (need / want already
+-- tells them apart). Case-insensitive, and safe to re-run.
+update public.expenses
+  set categories = array(
+    select distinct case lower(c) when 'drinks' then 'Fun' when 'subscriptions' then 'Bills' else c end
+    from unnest(categories) as c)
+  where exists (select 1 from unnest(categories) as c where lower(c) in ('drinks', 'subscriptions'));
+
 -- Fast lookups for the history screen (newest first, per user).
 create index if not exists expenses_user_created_idx
   on public.expenses (user_id, created_at desc);

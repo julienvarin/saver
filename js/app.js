@@ -255,7 +255,8 @@ function buildChips() {
   const names = defaults.concat(savedCats, CATEGORIES.indexOf("Other") >= 0 ? ["Other"] : []);
   names.forEach((name) => {
     if (name === "Other") {
-      const b = makeChip("+ Other");
+      const b = makeChip("+");
+      b.setAttribute("aria-label", "New category");
       b.classList.add("add");
       b.addEventListener("click", () => {
         haptic();
@@ -305,7 +306,7 @@ function addCustomCategoryDirect(name) {
   entry.categories.push(name);
 }
 
-// Tapping "+ Other" reveals an input; the typed name becomes a new selected chip.
+// Tapping "+" reveals an input; the typed name becomes a new selected chip.
 function addCustomCategory(rawName) {
   const name = (rawName || "").trim();
   const w = $("#cat-custom-wrap");
@@ -362,8 +363,8 @@ async function refreshSavedCats() {
   const count = new Map();
   data.forEach((r) => (r.categories || []).forEach((c) => count.set(c, (count.get(c) || 0) + 1)));
   const fromDb = Array.from(count.keys()).sort((a, b) => count.get(b) - count.get(a));
-  // keep locally-known ones that aren't in the DB yet (e.g. a save in flight)
-  setSavedCats(fromDb.concat(savedCats));
+  // the database wins, so renamed / merged categories drop out of the chips
+  setSavedCats(fromDb);
 }
 
 /* ---- remembered titles: one tap re-logs "Lidl · Groceries · Need" ---- */
@@ -822,8 +823,9 @@ function renderStats(rows) {
 
   // category breakdown — scoped by an active kind filter, but not by a
   // category filter (so you can still switch between categories).
-  // Unfiltered, it shows spending only.
-  const catScope = kindFilter ? rows.filter(matchesFilter) : rows.filter((r) => !isSaving(r) && !isIncome(r));
+  // Unfiltered, it shows wants: needs are mostly fixed bills that dwarf
+  // everything else, and wants are where money can be saved.
+  const catScope = kindFilter ? rows.filter(matchesFilter) : rows.filter((r) => r.kind === "want");
   const byCat = {};
   catScope.forEach((r) => {
     const a = netAmount(r);
@@ -838,7 +840,7 @@ function renderStats(rows) {
   if (cats.length) {
     const head = document.createElement("div");
     head.className = "section-label";
-    head.textContent = "By category";
+    head.textContent = ({ need: "Needs", saving: "Saved" }[kindFilter && statsFilter.value] || "Wants") + " by category";
     wrap.appendChild(head);
     const max = byCat[cats[0]] || 1;
     cats.forEach((c) => {
@@ -1095,7 +1097,7 @@ async function renderBudget(rows) {
     const btn = el("button", "btn primary small", "+ Salary received");
     btn.addEventListener("click", startSalary);
     c.appendChild(btn);
-    const setup = el("button", "btn ghost small", "Bills, subscriptions & budget");
+    const setup = el("button", "btn ghost small", "Bills & budget");
     setup.addEventListener("click", () => openBudgetSettings());
     c.appendChild(setup);
     wrap.appendChild(c);
@@ -1179,17 +1181,19 @@ async function renderBudget(rows) {
   };
   if (current) {
     actBtn("+ Money in", startIncome);
-    actBtn("+ New salary", startSalary);
+    actBtn("+ Salary", startSalary);
   }
-  actBtn("Edit budget", () => openBudgetSettings());
   // reimbursable expenses: count what's left on you, or the full amount
   if (rows.some((r) => r.reimbursable)) {
-    const t = el("button", "plan-act toggle" + (reimbFull ? " active" : ""), reimbFull ? "↩︎ Full amount" : "↩︎ After refund");
+    // on (highlighted) = refunds taken off
+    const t = el("button", "plan-act toggle" + (reimbFull ? "" : " active"), "↩︎");
     t.type = "button";
+    t.setAttribute("aria-label", "Take refunds off reimbursable expenses");
     t.addEventListener("click", () => {
       haptic();
       reimbFull = !reimbFull;
       try { localStorage.setItem(LS.reimbFull, reimbFull ? "1" : ""); } catch (e) {}
+      toast(reimbFull ? "Reimbursable: full amount" : "Reimbursable: after refund");
       renderStats(statsRows);
       renderList(statsRows);
       renderBudget(statsRows);
@@ -1204,7 +1208,7 @@ async function renderBudget(rows) {
     const toPay = bills.filter((b) => !b.paid);
     const head = el("button", "fold-head" + (billsOpen ? " open" : ""));
     head.type = "button";
-    head.appendChild(el("span", "", "Bills & subscriptions"));
+    head.appendChild(el("span", "", "Bills"));
     head.appendChild(el("span", "fold-sum", toPay.length
       ? toPay.length + " to pay · " + euro0(toPay.reduce((s, b) => s + b.amount, 0)) : "All paid ✓"));
     const list = el("div", "fold-body");
@@ -1269,7 +1273,7 @@ async function logBill(b) {
   const kind = billKind(b);
   const { data, error } = await sb.from("expenses").insert({
     user_id: user.id, amount: b.amount, title: b.name,
-    categories: [kind === "want" ? "Subscriptions" : "Bills"], kind,
+    categories: ["Bills"], kind,
   }).select();
   if (error) { toast(error.message, true); return; }
   const row = data && data[0];

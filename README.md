@@ -87,14 +87,14 @@ Keep new changes in the same style (`add column if not exists`, `drop ... if exi
 
 ## Budget
 
-Tap **Edit budget** on the Stats card (or **⚙** at the top of Stats) to set:
+Tap **⚙** at the top of Stats to set:
 
 - **Salary received** — each salary starts a new budget month, running until the next one
   lands (so a salary on the 3rd gives a 3rd → 2nd month). Tap **+ New salary** on the Stats
   card when it arrives. Before your first salary, Stats uses calendar months.
 - **Split** — how your salary divides into Needs / Wants / Save (default 50 / 30 / 20). Money in
   (e.g. a sub-tenant's rent) goes to Needs only, since it pays bills back out.
-- **Bills & subscriptions** — recurring payments with their usual day. Tap the **Need / Want**
+- **Bills** — recurring payments, subscriptions included, with their usual day. Tap the **Need / Want**
   toggle on each: rent and electricity are needs, Spotify is a want. Unpaid ones are reserved
   from their own budget (due on the first occurrence of their day after payday); tap **Paid**
   to log one. On Stats they're folded behind one line ("1 to pay · €700") — tap it to open
@@ -120,8 +120,11 @@ what's still planned:
 
 A bar that goes past its line gets an outline: red for Needs / Wants, green for Save.
 
-When the month has reimbursable expenses, a small **↩︎ After refund / Full amount** toggle on the
-card switches how they count: only what's left on you after the refund, or the whole amount.
+When the month has reimbursable expenses, a small **↩︎** toggle on the card switches how they
+count: highlighted takes the refund off (what's left on you), off counts the whole amount.
+
+**Wants by category** shows where your wants money goes — that's where you can cut back. Needs
+are mostly fixed bills, so they'd dwarf everything else; tap the Needs bar to see them instead.
 
 > Upgrading? Re-run [`supabase/schema.sql`](supabase/schema.sql) once (the workflow does it on
 > merge) — it adds the `budgets` table, and turns old **Debt** entries into
@@ -129,7 +132,7 @@ card switches how they count: only what's left on you after the refund, or the w
 
 ## Customising
 
-- **Categories:** edit the `CATEGORIES` array at the top of [`js/app.js`](js/app.js). Any category you add with **+ Other** is remembered automatically and shows up as a quick-pick chip from then on.
+- **Categories:** edit the `CATEGORIES` array at the top of [`js/app.js`](js/app.js). Any category you add with **+** is remembered automatically and shows up as a quick-pick chip from then on.
 - **Colours / look:** the CSS variables at the top of [`css/style.css`](css/style.css).
 - **App icon:** re-run `python3 scripts/gen_icons.py` after tweaking the colours in that script.
 
