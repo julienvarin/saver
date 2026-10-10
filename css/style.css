@@ -158,6 +158,8 @@ body {
 
 /* details step: title, recent entries, categories, need / want */
 #step-details { overflow-y: auto; -webkit-overflow-scrolling: touch; gap: 12px; }
+/* a scrolling column: never squash its rows (the recent-entries row got clipped) */
+#step-details > * { flex-shrink: 0; }
 .det-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 0 2px; }
 .det-amount {
   border: none; background: transparent; color: var(--text); cursor: pointer; padding: 0;
@@ -451,6 +453,20 @@ button.badge { border: none; cursor: pointer; font-family: inherit; }
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
   color: var(--muted); font-size: 12px; margin-top: 14px; text-transform: uppercase; letter-spacing: .05em;
 }
+.b-in {
+  border: none; background: transparent; color: var(--need); font: inherit; font-weight: 700;
+  letter-spacing: inherit; text-transform: inherit; padding: 4px 0; cursor: pointer;
+}
+.b-in.active { text-decoration: underline; }
+.fold-head {
+  display: flex; justify-content: space-between; align-items: center; gap: 8px; width: 100%;
+  border: none; background: transparent; color: var(--muted); cursor: pointer; padding: 6px 0;
+  font-size: 13px; text-transform: uppercase; letter-spacing: .05em; margin-top: 14px;
+}
+.fold-head::after { content: "›"; font-size: 18px; transition: transform .15s ease; }
+.fold-head.open::after { transform: rotate(90deg); }
+.fold-sum { margin-left: auto; color: var(--text); text-transform: none; letter-spacing: 0; font-size: 14px; }
+.fold-body { padding-top: 8px; }
 .b-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .plan-name .dot { width: 8px; height: 8px; margin-right: 8px; vertical-align: middle; }
 

@@ -96,14 +96,16 @@ Tap **Edit budget** on the Stats card (or **⚙** at the top of Stats) to set:
 - **Bills & subscriptions** — recurring payments with their usual day. Tap the **Need / Want**
   toggle on each: rent and electricity are needs, Spotify is a want. Unpaid ones are reserved
   from their own budget (due on the first occurrence of their day after payday); tap **Paid**
-  to log one. Want subscriptions are left out of the day-to-day "pace" so they don't skew it.
+  to log one. On Stats they're folded behind one line ("1 to pay · €700") — tap it to open
+  the list. Want subscriptions are left out of the day-to-day "pace" so they don't skew it.
 
 **+ New salary** opens the keypad with your last salary; tap **Save** (or type the new amount).
 
 **Money in** (a sub-tenant paying you, a refund, a side job): tap **+ Money in** on the Stats
 card. Sources you've logged before show up as chips with their last amount — one tap logs it
 again. For a new one, type a title, tap **Save**, then the amount. It's added to this month's
-income and split like your salary. If someone
+income and split like your salary. Tap **+ €… in** on the Stats card to list what came in, and
+edit or delete it from there. If someone
 pays you back for part of a specific expense, mark that expense **Reimbursable** instead.
 
 Each expense is **Need**, **Want** or **Save** (money put aside). A late bill or overdue invoice
