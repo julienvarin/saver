@@ -3,28 +3,41 @@
 /* ------------------------------------------------------------------ */
 /*  Config                                                             */
 /* ------------------------------------------------------------------ */
-// Edit this list to change your categories.
+// Starter categories, shown until you've used some: from then on the chips are
+// the categories you actually use, most used first ("+" adds a new one).
 const CATEGORIES = [
   "Eat out", "Groceries", "Transport", "Shopping",
   "Bills", "Health", "Fun", "Travel", "Other",
 ];
 
+// Retired category names and where they went. Applied to everything read back,
+// so an old name never comes back as a chip.
+const RENAMED = { food: "Eat out", drinks: "Eat out", subscriptions: "Bills" };
+function canonCats(cats) {
+  const out = [];
+  (cats || []).forEach((c) => {
+    const n = RENAMED[String(c).trim().toLowerCase()] || c;
+    if (out.indexOf(n) < 0) out.push(n);
+  });
+  return out;
+}
+
 const LS = {
   url: "saver.sb_url",
   key: "saver.sb_key",
-  cats: "saver.custom_cats",
+  cats: "saver.used_cats",
   billsOpen: "saver.bills_open",
   reimbFull: "saver.reimb_full",
 };
 
-// Custom categories you've used before. Learned from your saved expenses
+// Categories you've used, most used first. Learned from your saved expenses
 // (so they sync across devices) and cached locally for an instant render.
 let savedCats = loadCachedCats();
 
 function loadCachedCats() {
   try {
     const v = JSON.parse(localStorage.getItem(LS.cats) || "[]");
-    return Array.isArray(v) ? v.filter((x) => typeof x === "string" && x) : [];
+    return Array.isArray(v) ? canonCats(v.filter((x) => typeof x === "string" && x)) : [];
   } catch (e) { return []; }
 }
 
@@ -251,8 +264,8 @@ function toggleChip(b, name) {
 function buildChips() {
   const wrap = $("#cats");
   wrap.innerHTML = "";
-  const defaults = CATEGORIES.filter((n) => n !== "Other");
-  const names = defaults.concat(savedCats, CATEGORIES.indexOf("Other") >= 0 ? ["Other"] : []);
+  const starters = CATEGORIES.filter((n) => n !== "Other");
+  const names = (savedCats.length ? savedCats : starters).concat(["Other"]);
   names.forEach((name) => {
     if (name === "Other") {
       const b = makeChip("+");
@@ -326,15 +339,13 @@ function applyCategories(cats) {
   });
 }
 
-// Replace the saved custom categories and redraw the chips, keeping the
-// current selection.
+// Replace the used categories and redraw the chips, keeping the current selection.
 function setSavedCats(list) {
-  const defaults = CATEGORIES.map((n) => n.toLowerCase());
   const seen = new Set();
   const next = [];
-  list.forEach((n) => {
+  canonCats(list).forEach((n) => {
     const k = (n || "").trim().toLowerCase();
-    if (!k || defaults.indexOf(k) >= 0 || seen.has(k)) return;
+    if (!k || k === "other" || seen.has(k)) return;
     seen.add(k); next.push(n.trim());
   });
   if (next.join("\n") === savedCats.join("\n")) return;
@@ -346,12 +357,12 @@ function setSavedCats(list) {
   applyCategories(selected);
 }
 
-// Remember any new custom categories from a just-saved expense.
+// Remember any new categories from a just-saved expense.
 function rememberCats(cats) {
   setSavedCats(savedCats.concat(cats || []));
 }
 
-// Learn custom categories and remembered titles from your expenses, most used first.
+// Learn the categories and remembered titles from your expenses, most used first.
 async function refreshSavedCats() {
   const { data, error } = await sb
     .from("expenses")
@@ -359,6 +370,7 @@ async function refreshSavedCats() {
     .order("created_at", { ascending: false })
     .limit(2000);
   if (error || !data) return;
+  data.forEach((r) => { r.categories = canonCats(r.categories); });
   learnTitles(data);
   const count = new Map();
   data.forEach((r) => (r.categories || []).forEach((c) => count.set(c, (count.get(c) || 0) + 1)));
@@ -752,6 +764,7 @@ async function loadHistory() {
   if (error) { list.innerHTML = '<div class="hist-empty">Error loading.</div>'; toast(error.message, true); return; }
 
   statsRows = data || [];
+  statsRows.forEach((r) => { r.categories = canonCats(r.categories); });
   renderStats(statsRows);
   renderList(statsRows);
   renderBudget(statsRows);
