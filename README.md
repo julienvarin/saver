@@ -92,8 +92,8 @@ Tap **⚙** at the top of Stats to set:
 - **Salary received** — each salary starts a new budget month, running until the next one
   lands (so a salary on the 3rd gives a 3rd → 2nd month). Tap **+ New salary** on the Stats
   card when it arrives. Before your first salary, Stats uses calendar months.
-- **Split** — how your salary divides into Needs / Wants / Save (default 50 / 30 / 20). Money in
-  (e.g. a sub-tenant's rent) goes to Needs only, since it pays bills back out.
+- **Split** — how your salary divides into Needs / Wants / Save (default 50 / 30 / 20). Each
+  bar's line is exactly that share of your salary (plus any **Extra** money in, see below).
 - **Bills** — recurring payments, subscriptions included, with their usual day. Tap the **Need / Want**
   toggle on each: rent and electricity are needs, Spotify is a want. Unpaid ones are reserved
   from their own budget (due on the first occurrence of their day after payday); tap **Paid**
@@ -104,8 +104,14 @@ Tap **⚙** at the top of Stats to set:
 
 **Money in** (a sub-tenant paying you, a refund, a side job): tap **+ Money in** on the Stats
 card. Sources you've logged before show up as chips with their last amount — one tap logs it
-again. For a new one, type a title, tap **Save**, then the amount. It's added to this month's
-income and added to your Needs budget. Tap **+ €… in** on the Stats card to list what came in, and
+again. For a new one, type a title, pick where it goes, tap **Save**, then the amount:
+
+- **Covers bills** (a sub-tenant paying rent, internet, electricity) — taken off what you spent
+  on Needs, so the Needs bar shows your own share. No line moves.
+- **Extra · split** (a DJ fee, an eBay sale) — added to your salary and split by the same
+  percentages, so every line grows.
+
+Each source remembers its choice, so the chip logs it the same way next time. Tap **+ €… in** on the Stats card to list what came in, and
 edit or delete it from there. If someone
 pays you back for part of a specific expense, mark that expense **Reimbursable** instead.
 
@@ -114,9 +120,9 @@ is just a **Need**. The Stats card is three bars — solid is what's spent (or s
 what's still planned:
 
 - **Wants** — spent, plus subscriptions still to come. The white line is today: stay left of it.
-- **Needs** — paid so far, plus bills still to pay this month.
-- **Save** — put aside so far, plus the buffer you'll still have at payday if wants end on
-  budget. Its number is where the month should end up.
+- **Needs** — your share paid so far (needs minus money in), plus bills still to pay this month.
+- **Save** — what you've put aside so far, against your save share. Whatever is left in Needs or
+  Wants at the end of the month is yours to move here.
 
 A bar that goes past its line gets an outline: red for Needs / Wants, green for Save.
 
