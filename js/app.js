@@ -573,6 +573,9 @@ async function undoInsert(id) {
 async function saveSalary() {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) { showScreen("screen-auth"); return; }
+  // the whole row is written back: start from what's stored now, not from
+  // a copy loaded hours ago (or on another device)
+  if (!(await loadBudget())) { toast("Couldn't load your budget — try again", true); return; }
   const incomes = Object.assign({}, budget.incomes, { [entry.date]: entry.amount });
   const next = {
     user_id: user.id, need_pct: budget.need_pct, want_pct: budget.want_pct, save_pct: budget.save_pct,
@@ -1030,16 +1033,19 @@ function parseMoney(raw) {
   return isFinite(n) && n >= 0 ? Math.round(n * 100) / 100 : null;
 }
 
+// Returns false when it couldn't be read (offline…): saving then would
+// overwrite the stored bills and salaries with stale or empty ones.
 async function loadBudget() {
   const { data, error } = await sb.from("budgets").select("*").maybeSingle();
+  budgetLoaded = true;
   if (error) {
     budgetMissing = /budgets/.test(error.message || "") || error.code === "42P01" || error.code === "PGRST205";
     console.error(error);
-  } else {
-    budgetMissing = false;
-    budget = Object.assign({}, DEFAULT_BUDGET, data || {});
+    return false;
   }
-  budgetLoaded = true;
+  budgetMissing = false;
+  budget = Object.assign({}, DEFAULT_BUDGET, data || {});
+  return true;
 }
 
 // An expense belongs to a bill when its title or a category has the same
@@ -1393,8 +1399,10 @@ function addSalaryRow(p, prepend) {
 }
 
 async function openBudgetSettings() {
-  if (!budgetLoaded) await loadBudget();
+  // always fresh: saving writes back every salary and bill shown here
+  const ok = await loadBudget();
   if (budgetMissing) { toast("Re-run supabase/schema.sql first", true); return; }
+  if (!ok) { toast("Couldn't load your budget — try again", true); return; }
   const pays = paydays().reverse(); // newest first
   hiddenPaydays = {};
   pays.slice(SHOWN_PAYDAYS).forEach((p) => { hiddenPaydays[p.date] = p.amount; });
