@@ -113,6 +113,7 @@ const entry = {
   prefilled: false, // amount was prefilled: the first key press replaces it
   catsTouched: false, // categories picked by hand: don't overwrite them from a known title
   fromStats: false, // started from the Stats screen: go back there once saved
+  extra: false, // money in: extra (split like the salary) rather than covering bills
 };
 
 function resetEntry() {
@@ -123,6 +124,7 @@ function resetEntry() {
   entry.reimbursable = false;
   entry.reimbursed = false;
   entry.reimbAmount = "";
+  entry.extra = false;
   entry.date = toDateInput(new Date());
   entry.createdAt = null;
   entry.editId = null;
@@ -202,6 +204,14 @@ function toggleReimb() {
   haptic();
   updateFlagsUI();
 }
+// Money in: "Covers bills" (sub-tenant: comes off needs) or "Extra" (DJ fee,
+// eBay: split like the salary). Stored as the "Extra" category on the row.
+const EXTRA = "Extra";
+function isExtra(r) { return (r.categories || []).includes(EXTRA); }
+function updateIncomeUI() {
+  $$("#in-kind .pill").forEach((b) => b.classList.toggle("active", (b.dataset.in === "extra") === entry.extra));
+}
+function setExtra(on) { entry.extra = on; haptic(); updateIncomeUI(); }
 function toggleReceived() { entry.reimbursed = !entry.reimbursed; haptic(); updateFlagsUI(); }
 
 // Details step: title, recent entries, categories, flags, need / want.
@@ -210,6 +220,8 @@ function enterDetails() {
   const income = entry.kind === "income";
   $("#det-body").hidden = income;
   $("#det-save").hidden = !income;
+  $("#in-kind").hidden = !income;
+  updateIncomeUI();
   $("#title-input").placeholder = income ? "From who / what?" : "What was it?";
   syncMiniAmount();
   updateKindUI();
@@ -373,7 +385,7 @@ async function refreshSavedCats() {
   data.forEach((r) => { r.categories = canonCats(r.categories); });
   learnTitles(data);
   const count = new Map();
-  data.forEach((r) => (r.categories || []).forEach((c) => count.set(c, (count.get(c) || 0) + 1)));
+  data.forEach((r) => isIncome(r) || (r.categories || []).forEach((c) => count.set(c, (count.get(c) || 0) + 1)));
   const fromDb = Array.from(count.keys()).sort((a, b) => count.get(b) - count.get(a));
   // the database wins, so renamed / merged categories drop out of the chips
   setSavedCats(fromDb);
@@ -422,7 +434,7 @@ function renderSuggest() {
   list.slice(0, 6).forEach((k) => {
     const b = el("button", "sg-chip");
     b.type = "button";
-    b.appendChild(el("span", "dot " + (k.kind === "income" ? "need" : k.kind)));
+    b.appendChild(el("span", "dot " + (k.kind !== "income" ? k.kind : isExtra(k) ? "save" : "need")));
     b.appendChild(el("span", "sg-title", k.title));
     if (income) b.appendChild(el("span", "sg-cats", "+" + formatEuro(k.amount)));
     else if (k.categories.length) b.appendChild(el("span", "sg-cats", k.categories.join(" · ")));
@@ -431,6 +443,7 @@ function renderSuggest() {
       entry.title = k.title;
       entry.categories = k.categories.slice();
       entry.kind = k.kind;
+      if (income) entry.extra = isExtra(k);
       saveExpense();
     });
     wrap.appendChild(b);
@@ -442,6 +455,7 @@ function onTitleInput(value) {
   entry.title = value;
   renderSuggest();
   const k = known.get(norm(value));
+  if (k && entry.kind === "income" && k.kind === "income") { entry.extra = isExtra(k); updateIncomeUI(); }
   if (!k || entry.kind === "income") { updateKindUI(); return; }
   if (!entry.catsTouched) {
     resetChips();
@@ -497,7 +511,7 @@ async function saveExpense() {
     user_id: user.id,
     amount: entry.amount,
     title: entry.title || null,
-    categories: entry.categories,
+    categories: entry.kind === "income" ? (entry.extra ? [EXTRA] : []) : entry.categories,
     kind: entry.kind,
     reimbursable: entry.reimbursable,
     reimbursed: entry.reimbursable ? entry.reimbursed : false,
@@ -530,7 +544,7 @@ async function saveExpense() {
     return;
   }
 
-  const savedCatsUsed = record.categories.slice();
+  const savedCatsUsed = record.kind === "income" ? [] : record.categories.slice();
   const backToStats = editing || entry.fromStats;
   const newId = !editing && data && data[0] ? data[0].id : null;
   rememberTitle(record);
@@ -601,7 +615,7 @@ let statsFilter = { type: null, value: null }; // null | 'kind'|'need'/'want'/'s
 
 // Money put aside goes to the savings bucket.
 function isSaving(r) { return r.kind === "save"; }
-// Extra money in (sub-tenant, refund, side job): comes off needs spending, never spending itself.
+// Money in (sub-tenant, side job…): covers bills (comes off needs) or extra (split like the salary).
 function isIncome(r) { return r.kind === "income"; }
 
 function matchesFilter(r) {
@@ -740,7 +754,8 @@ function openEdit(r) {
   entry.createdAt = r.created_at;
   entry.date = toDateInput(new Date(r.created_at));
   entry.catsTouched = true;
-  applyCategories(r.categories || []);
+  if (isIncome(r)) entry.extra = isExtra(r);
+  else applyCategories(r.categories || []);
   renderAmount();
   $("#title-input").value = entry.title;
   syncMiniAmount();
@@ -951,7 +966,7 @@ function renderItem(r) {
   }
   const catSpan = document.createElement("span");
   catSpan.className = "cats";
-  catSpan.textContent = isIncome(r) ? "Money in" : (r.categories || []).join(" · ") || "—";
+  catSpan.textContent = isIncome(r) ? (isExtra(r) ? "Money in · Extra" : "Money in · Bills") : (r.categories || []).join(" · ") || "—";
   sub.appendChild(catSpan);
 
   main.appendChild(title);
@@ -1121,22 +1136,24 @@ async function renderBudget(rows) {
   const late = current && today > dim;                     // next salary expected but not logged yet
   const todayDate = startOfDay(new Date());
 
-  let needSpent = 0, wantSpent = 0, saved = 0, extra = 0;
+  let needSpent = 0, wantSpent = 0, saved = 0, covers = 0, bonus = 0;
   rows.forEach((r) => {
     const a = netAmount(r);
-    if (isIncome(r)) extra += Number(r.amount) || 0;
+    if (isIncome(r)) { if (isExtra(r)) bonus += Number(r.amount) || 0; else covers += Number(r.amount) || 0; }
     else if (r.kind === "need") needSpent += a;
     else if (r.kind === "save") saved += a;
     else wantSpent += a; // wants (and anything untagged)
   });
 
-  // the salary is split by the percentages, fixed. Money in (a sub-tenant's rent…)
-  // pays bills back, so it comes off what you spent on needs: the Needs bar shows
-  // your own share against exactly need_pct of the salary
-  const needBudget = salary * budget.need_pct / 100;
-  const wantBudget = salary * budget.want_pct / 100;
-  const saveTarget = salary * budget.save_pct / 100;
-  const needMine = Math.max(0, needSpent - extra);
+  // the salary (plus extra money in: DJ fee, eBay…) is split by the percentages,
+  // fixed. Money in that covers bills (a sub-tenant's rent…) comes off what you
+  // spent on needs instead: the Needs bar shows your own share
+  const extra = covers + bonus;
+  const base = salary + bonus;
+  const needBudget = base * budget.need_pct / 100;
+  const wantBudget = base * budget.want_pct / 100;
+  const saveTarget = base * budget.save_pct / 100;
+  const needMine = Math.max(0, needSpent - covers);
 
   // bills: paid this period when a need / want with the same name exists; due on
   // the first occurrence of their day on/after payday. Unpaid ones are reserved
@@ -1605,6 +1622,7 @@ function wire() {
     if (entry.kind === "income") saveIncome(); else e.target.blur();
   });
   $("#det-save").addEventListener("click", saveIncome);
+  $$("#in-kind .pill").forEach((b) => b.addEventListener("click", () => setExtra(b.dataset.in === "extra")));
   $("#cat-custom").addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); addCustomCategory(e.target.value); }
   });
