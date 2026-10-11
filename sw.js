@@ -1,6 +1,6 @@
 /* Simple network-first service worker for the app shell.
    Bump CACHE when you change cached assets to force an update. */
-const CACHE = "saver-v23";
+const CACHE = "saver-v24";
 const ASSETS = [
   "./",
   "index.html",
