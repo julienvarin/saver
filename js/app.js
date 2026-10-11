@@ -601,7 +601,7 @@ let statsFilter = { type: null, value: null }; // null | 'kind'|'need'/'want'/'s
 
 // Money put aside goes to the savings bucket.
 function isSaving(r) { return r.kind === "save"; }
-// Extra money in (sub-tenant, refund, side job): adds to the month's income, never spending.
+// Extra money in (sub-tenant, refund, side job): comes off needs spending, never spending itself.
 function isIncome(r) { return r.kind === "income"; }
 
 function matchesFilter(r) {
@@ -1078,11 +1078,9 @@ function bucket(kind, label, spent, target, opts) {
   name.appendChild(el("span", "dot " + kind));
   name.appendChild(document.createTextNode(label));
   top.appendChild(name);
-  // save shows where the month ends up; needs / wants what's spent
-  const shown = opts.total != null ? opts.total : spent;
-  top.appendChild(el("span", "b-amt", euro0(shown) + " / " + euro0(target)));
+  top.appendChild(el("span", "b-amt", euro0(spent) + " / " + euro0(target)));
   b.appendChild(top);
-  const past = kind === "save" ? (shown >= target ? "good" : null)
+  const past = kind === "save" ? (spent >= target ? "good" : null)
     : spent + (opts.reserved || 0) > target ? "bad" : null;
   b.appendChild(bar(kind, spent, opts.reserved || 0, target, opts.marker, past));
   return b;
@@ -1132,12 +1130,13 @@ async function renderBudget(rows) {
     else wantSpent += a; // wants (and anything untagged)
   });
 
-  // the salary is split by the percentages; money in (a sub-tenant's rent…) only
-  // goes to needs, since it pays bills back out
-  const income = salary + extra;
-  const needBudget = salary * budget.need_pct / 100 + extra;
+  // the salary is split by the percentages, fixed. Money in (a sub-tenant's rent…)
+  // pays bills back, so it comes off what you spent on needs: the Needs bar shows
+  // your own share against exactly need_pct of the salary
+  const needBudget = salary * budget.need_pct / 100;
   const wantBudget = salary * budget.want_pct / 100;
   const saveTarget = salary * budget.save_pct / 100;
+  const needMine = Math.max(0, needSpent - extra);
 
   // bills: paid this period when a need / want with the same name exists; due on
   // the first occurrence of their day on/after payday. Unpaid ones are reserved
@@ -1159,16 +1158,12 @@ async function renderBudget(rows) {
   card.appendChild(bucket("want", "Wants", wantSpent, wantBudget,
     { reserved: upcomingWant, marker: current ? (today / dim) * 100 : null }));
 
-  // needs: paid so far + bills still planned this month
-  card.appendChild(bucket("need", "Needs", needSpent, needBudget, { reserved: upcoming }));
+  // needs: your share paid so far + bills still planned this month
+  card.appendChild(bucket("need", "Needs", needMine, needBudget, { reserved: upcoming }));
 
-  // save: put aside so far + the buffer you'd still have left at payday if
-  // wants end on budget (or wherever they are, if already over)
-  const projected = current
-    ? income - needSpent - upcoming - Math.max(wantSpent + upcomingWant, wantBudget)
-    : income - needSpent - wantSpent;
-  card.appendChild(bucket("save", "Save", saved, saveTarget,
-    { reserved: Math.max(0, projected - saved), total: projected }));
+  // save: what you've put aside against the target; what's left in needs / wants
+  // at the end of the month is yours to move here
+  card.appendChild(bucket("save", "Save", saved, saveTarget));
 
   const foot = el("div", "b-foot");
   foot.appendChild(el("span", "", "Salary " + euro0(salary) + " · " +
