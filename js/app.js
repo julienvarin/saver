@@ -114,6 +114,7 @@ const entry = {
   catsTouched: false, // categories picked by hand: don't overwrite them from a known title
   fromStats: false, // started from the Stats screen: go back there once saved
   extra: false, // money in: extra (split like the salary) rather than covering bills
+  goal: null, // name of the savings goal this save goes to (quick flow from a goal)
 };
 
 function resetEntry() {
@@ -125,6 +126,7 @@ function resetEntry() {
   entry.reimbursed = false;
   entry.reimbAmount = "";
   entry.extra = false;
+  entry.goal = null;
   entry.date = toDateInput(new Date());
   entry.createdAt = null;
   entry.editId = null;
@@ -158,7 +160,7 @@ function updateProgress(stepId) {
     "step-saved": "",
   };
   let label = map[stepId] || "";
-  const mode = { income: "Money in", salary: "New salary" }[entry.kind] || "";
+  const mode = entry.goal || { income: "Money in", salary: "New salary" }[entry.kind] || "";
   if (mode && label) label = mode + " · " + label;
   if (entry.editId && label) label = "Edit · " + label;
   $("#progress").textContent = label;
@@ -583,7 +585,7 @@ async function saveSalary() {
   };
   const { error } = await sb.from("budgets").upsert(next);
   if (error) { toast(error.message, true); return; }
-  budget = Object.assign({}, DEFAULT_BUDGET, next);
+  budget = Object.assign({}, budget, next);
   haptic();
   resetEntry();
   toast("Salary saved · new budget month");
@@ -786,6 +788,7 @@ async function loadHistory() {
   renderStats(statsRows);
   renderList(statsRows);
   renderBudget(statsRows);
+  renderGoals(statsRows);
 }
 
 function renderStats(rows) {
@@ -1018,7 +1021,7 @@ function deleteBtn(r) {
 /* ------------------------------------------------------------------ */
 /*  Budget: salary + money in, need / want / savings split, bills      */
 /* ------------------------------------------------------------------ */
-const DEFAULT_BUDGET = { need_pct: 50, want_pct: 30, save_pct: 20, incomes: {}, bills: [] };
+const DEFAULT_BUDGET = { need_pct: 50, want_pct: 30, save_pct: 20, incomes: {}, bills: [], goals: [] };
 let budget = Object.assign({}, DEFAULT_BUDGET);
 let budgetLoaded = false;
 let budgetMissing = false; // the budgets table isn't created yet (old schema)
@@ -1329,6 +1332,87 @@ function saveIncome() {
   saveExpense();
 }
 
+/* ---- savings goals ---- */
+// A goal fills up with every "save" entry titled (or categorised) with its name,
+// across all months. With a "by" month it says how much to put aside per month.
+function monthIndex(d) { return d.getFullYear() * 12 + d.getMonth(); }
+function parseMonth(s) { const [y, m] = String(s || "").split("-").map(Number); return y && m ? new Date(y, m - 1, 1) : null; }
+function monthLabel(d) { return d.toLocaleDateString(undefined, { month: "short", year: "numeric" }); }
+
+function goalStatus(g, saves, monthRows) {
+  const target = Number(g.target) || 0;
+  const saved = saves.filter((r) => matchesName(r, g.name)).reduce((s, r) => s + (Number(r.amount) || 0), 0);
+  const thisMonth = monthRows.filter((r) => isSaving(r) && matchesName(r, g.name)).reduce((s, r) => s + (Number(r.amount) || 0), 0);
+  const left = Math.max(0, target - saved);
+  const by = parseMonth(g.by);
+  // months left, counting the current one
+  const months = by ? monthIndex(by) - monthIndex(new Date()) + 1 : null;
+  const perMonth = left && months > 0 ? left / months : null;
+  return { target, saved, thisMonth, left, by, months, perMonth };
+}
+
+async function renderGoals(rows) {
+  const wrap = $("#goals");
+  if (!budgetLoaded) await loadBudget();
+  const goals = (budget.goals || []).filter((g) => g && g.name);
+  if (statsRows !== rows) return;
+  wrap.innerHTML = "";
+  if (!goals.length || !isCurrentPeriod(statsPeriod)) return;
+
+  const { data, error } = await sb.from("expenses").select("amount, title, categories").eq("kind", "save");
+  if (statsRows !== rows) return;
+  if (error) { console.error(error); return; }
+  wrap.innerHTML = "";
+  const saves = (data || []).map((r) => Object.assign(r, { categories: canonCats(r.categories) }));
+
+  wrap.appendChild(el("div", "section-label", "Goals"));
+  goals.forEach((g) => {
+    const st = goalStatus(g, saves, rows);
+    const done = st.target > 0 && st.left === 0;
+    const row = el("div", "plan-row" + (done ? " done" : ""));
+    const main = el("div", "plan-main");
+    const name = el("div", "plan-name");
+    name.appendChild(el("span", "dot save"));
+    name.appendChild(document.createTextNode(g.name));
+    main.appendChild(name);
+
+    let sub = euro0(st.saved) + " of " + euro0(st.target);
+    let late = false;
+    if (done) sub += " · Reached ✓";
+    else if (st.by && st.months <= 0) { sub += " · was due " + monthLabel(st.by); late = true; }
+    else if (st.perMonth) sub += " · " + euro0(Math.ceil(st.perMonth)) + "/mo until " + monthLabel(st.by);
+    else sub += " · " + euro0(st.left) + " to go";
+    main.appendChild(el("div", "plan-sub" + (late ? " bad" : ""), sub));
+    main.appendChild(bar("save", st.saved, 0, st.target, null, done ? "good" : null));
+    row.appendChild(main);
+
+    if (!done) {
+      const add = el("button", "plan-act", "+ Save");
+      add.type = "button";
+      // prefill what's still needed this month to stay on track
+      add.addEventListener("click", () => startGoalSave(g, st.perMonth ? Math.max(0, Math.ceil(st.perMonth - st.thisMonth)) : 0));
+      row.appendChild(add);
+    }
+    wrap.appendChild(row);
+  });
+}
+
+// Put money towards a goal: the keypad (prefilled with this month's share) saves directly.
+function startGoalSave(g, amount) {
+  haptic();
+  resetEntry();
+  entry.kind = "save";
+  entry.title = g.name;
+  entry.goal = g.name;
+  entry.quick = true;
+  entry.fromStats = true;
+  if (amount) { entry.amount = amount; entry.prefilled = true; }
+  renderAmount();
+  updateAmountBtn();
+  showScreen("screen-entry");
+  showStep("step-amount");
+}
+
 /* ---- budget settings screen ---- */
 function inputCell(cls, value, placeholder, mode) {
   const i = document.createElement("input");
@@ -1362,6 +1446,20 @@ function addBillRow(b) {
   row.appendChild(kind);
   row.appendChild(removeBtn(row));
   $("#bs-bills").appendChild(row);
+}
+
+function addGoalRow(g) {
+  const row = el("div", "edit-row");
+  row.appendChild(inputCell("er-name", g.name, "Holiday"));
+  row.appendChild(inputCell("er-amt", g.target, "€", "decimal"));
+  const by = document.createElement("input");
+  by.type = "month";
+  by.className = "er-month";
+  by.value = g.by || "";
+  by.setAttribute("aria-label", "By (optional)");
+  row.appendChild(by);
+  row.appendChild(removeBtn(row));
+  $("#bs-goals").appendChild(row);
 }
 
 function updateSplitHint() {
@@ -1414,6 +1512,8 @@ async function openBudgetSettings() {
   updateSplitHint();
   $("#bs-bills").innerHTML = "";
   (budget.bills || []).forEach(addBillRow);
+  $("#bs-goals").innerHTML = "";
+  (budget.goals || []).forEach(addGoalRow);
   budgetDirty = false;
   showScreen("screen-budget");
   $("#screen-budget .hist-scroll").scrollTop = 0;
@@ -1443,14 +1543,26 @@ async function saveBudgetSettings() {
     bills.push({ name, amount, day: day >= 1 && day <= 31 ? day : null, kind: row.dataset.kind === "want" ? "want" : "need" });
   }
 
+  const goals = [];
+  for (const row of $$("#bs-goals .edit-row")) {
+    const name = row.querySelector(".er-name").value.trim();
+    if (!name) continue;
+    const target = parseMoney(row.querySelector(".er-amt").value);
+    if (!target) { toast("Set an amount for " + name, true); return; }
+    goals.push({ name, target, by: row.querySelector(".er-month").value || null });
+  }
+
   const { data: { user } } = await sb.auth.getUser();
   if (!user) { showScreen("screen-auth"); return; }
   const next = {
     user_id: user.id, need_pct: pcts[0], want_pct: pcts[1], save_pct: pcts[2],
-    incomes, bills, updated_at: new Date().toISOString(),
+    incomes, bills, goals, updated_at: new Date().toISOString(),
   };
   const { error } = await sb.from("budgets").upsert(next);
-  if (error) { toast(error.message, true); return; }
+  if (error) {
+    toast(/goals/.test(error.message || "") ? "Re-run supabase/schema.sql in Supabase to enable goals" : error.message, true);
+    return;
+  }
   budget = Object.assign({}, DEFAULT_BUDGET, next);
   budgetDirty = false;
   haptic();
@@ -1667,6 +1779,7 @@ function wire() {
     if (e.target.closest(".er-kind, .hi-act, .add-row")) budgetDirty = true;
   });
   $("#bs-add-bill").addEventListener("click", () => addBillRow({}));
+  $("#bs-add-goal").addEventListener("click", () => addGoalRow({}));
   $("#bs-add-salary").addEventListener("click", () => addSalaryRow({ date: toDateInput(new Date()) }, true));
   $("#bs-save-btn").addEventListener("click", saveBudgetSettings);
   ["#bs-need", "#bs-want", "#bs-save"].forEach((id) => $(id).addEventListener("input", updateSplitHint));

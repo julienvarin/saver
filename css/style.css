@@ -487,7 +487,7 @@ button.badge { border: none; cursor: pointer; font-family: inherit; }
 .plan-act.toggle { margin-left: auto; color: var(--muted); font-size: 16px; padding: 6px 12px; }
 .plan-act.toggle.active { color: var(--text); box-shadow: inset 0 0 0 1px var(--accent); }
 .plan-act.done { background: rgba(52, 211, 153, .18); color: var(--need); }
-#budget .section-label { margin-top: 18px; }
+#budget .section-label, #goals .section-label { margin-top: 18px; }
 
 /* ---- budget settings ---- */
 #screen-budget { justify-content: flex-start; }
@@ -519,6 +519,7 @@ button.badge { border: none; cursor: pointer; font-family: inherit; }
 .edit-row .er-amt { flex: 0 0 72px; text-align: right; }
 .edit-row .er-amt.wide { flex-basis: 96px; }
 .edit-row .er-day { flex: 0 0 44px; text-align: right; }
+.edit-row .er-month { flex: 0 0 128px; color-scheme: dark; font-size: 14px; font-family: inherit; }
 .er-kind {
   flex: 0 0 auto; border: none; border-radius: 10px; padding: 7px 9px; cursor: pointer;
   font-size: 13px; font-weight: 700; background: rgba(52, 211, 153, .18); color: var(--need);

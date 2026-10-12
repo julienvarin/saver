@@ -64,6 +64,8 @@ create policy "own rows - delete" on public.expenses
 --   incomes: {"2026-10": 2500, ...}  monthly income; a month without one uses the latest earlier month
 --   bills:   [{"name": "Rent", "amount": 800, "day": 5, "kind": "need"}, ...]  planned monthly bills
 --            and subscriptions; kind "need" (default) or "want"
+--   goals:   [{"name": "Holiday", "target": 1000, "by": "2027-06"}, ...]  savings goals; "save"
+--            entries titled with the goal's name count towards it. "by" (a month) is optional
 --   debts:   no longer used (kept so old data isn't lost)
 create table if not exists public.budgets (
   user_id    uuid primary key references auth.users (id) on delete cascade default auth.uid(),
@@ -75,6 +77,8 @@ create table if not exists public.budgets (
   debts      jsonb not null default '[]',
   updated_at timestamptz not null default now()
 );
+
+alter table public.budgets add column if not exists goals jsonb not null default '[]';
 
 alter table public.budgets enable row level security;
 

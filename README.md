@@ -8,6 +8,7 @@ Things you've logged before show up as one-tap chips ("Lidl · Groceries"), so a
 expense is just the amount and one tap. The **Today ▾** chip logs it on another day, and
 every save, delete or bill payment can be undone from the toast.
 Tap the chart icon for Stats: tap a budget bucket or the pending line to filter the list.
+Savings goals (⚙ → Goals) show on Stats with how much to put aside per month; **+ Save** on a goal logs money towards it.
 
 No build step, no framework — plain HTML/CSS/JS + the Supabase JS client from a CDN.
 
