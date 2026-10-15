@@ -129,8 +129,11 @@ A bar that goes past its line gets an outline: red for Needs / Wants, green for 
 When the month has reimbursable expenses, a small **↩︎** toggle on the card switches how they
 count: highlighted takes the refund off (what's left on you), off counts the whole amount.
 
-**Wants by category** shows where your wants money goes — that's where you can cut back. Needs
-are mostly fixed bills, so they'd dwarf everything else; tap the Needs bar to see them instead.
+**Spending by category** shows needs and wants together (each bar split green / yellow), biggest
+first — that's where you can cut back. The top 5 show; **Show all** opens the rest (remembered).
+Rent and other fixed bills would dwarf everything else, so pick them under **Leave out of spending
+by category** in ⚙: payments with the bill's exact title are skipped (listed as "Not counted" under
+the chart). A late fee logged under its own title still shows up, so mistakes stay visible.
 
 > Upgrading? Re-run [`supabase/schema.sql`](supabase/schema.sql) once (the workflow does it on
 > merge) — it adds the `budgets` table, and turns old **Debt** entries into

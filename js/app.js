@@ -27,6 +27,7 @@ const LS = {
   key: "saver.sb_key",
   cats: "saver.used_cats",
   billsOpen: "saver.bills_open",
+  catsOpen: "saver.cats_open",
   reimbFull: "saver.reimb_full",
 };
 
@@ -615,6 +616,8 @@ async function startSalary() {
 let statsPeriod = null;                   // shown period, see periodFor()
 let statsRows = [];                        // cached rows for the shown period
 let statsFilter = { type: null, value: null }; // null | 'kind'|'need'/'want'/'saving' | 'category'|name
+const TOP_CATS = 5; // categories shown before "Show all"
+let catsOpen = (() => { try { return !!localStorage.getItem(LS.catsOpen); } catch (e) { return false; } })();
 
 // Money put aside goes to the savings bucket.
 function isSaving(r) { return r.kind === "save"; }
@@ -852,40 +855,75 @@ function renderStats(rows) {
     b.classList.toggle("dim", kindFilter && statsFilter.value !== b.dataset.filter);
   });
 
-  // category breakdown — scoped by an active kind filter, but not by a
-  // category filter (so you can still switch between categories).
-  // Unfiltered, it shows wants: needs are mostly fixed bills that dwarf
-  // everything else, and wants are where money can be saved.
-  const catScope = kindFilter ? rows.filter(matchesFilter) : rows.filter((r) => r.kind === "want");
+  // category breakdown — needs and wants together, so you see where the money
+  // goes and what to cut. Scoped by an active kind filter, but not by a
+  // category filter (so you can still switch between categories). Bills marked
+  // "leave out" in settings (rent…) are skipped: they're fixed and would dwarf
+  // everything else. A late fee logged under its own title still shows.
+  const leftOut = new Set((budget.bills || []).filter((b) => b.hide).map((b) => norm(b.name)).filter(Boolean));
+  const skipped = new Set();
+  const catScope = (kindFilter ? rows.filter(matchesFilter) : rows.filter((r) => r.kind === "need" || r.kind === "want"))
+    .filter((r) => {
+      if (!leftOut.has(norm(r.title))) return true;
+      skipped.add(r.title.trim());
+      return false;
+    });
   const byCat = {};
   catScope.forEach((r) => {
     const a = netAmount(r);
     if (a <= 0) return;
+    const k = isSaving(r) ? "save" : r.kind;
     const cats = (r.categories && r.categories.length) ? r.categories : ["Uncategorised"];
-    cats.forEach((c) => { byCat[c] = (byCat[c] || 0) + a; });
+    cats.forEach((c) => {
+      const t = byCat[c] || (byCat[c] = { total: 0, need: 0, want: 0, save: 0 });
+      t.total += a;
+      t[k] += a;
+    });
   });
 
   const wrap = $("#cat-breakdown");
   wrap.innerHTML = "";
-  const cats = Object.keys(byCat).sort((a, b) => byCat[b] - byCat[a]);
+  const cats = Object.keys(byCat).sort((a, b) => byCat[b].total - byCat[a].total);
   if (cats.length) {
-    const head = document.createElement("div");
-    head.className = "section-label";
-    head.textContent = ({ need: "Needs", saving: "Saved" }[kindFilter && statsFilter.value] || "Wants") + " by category";
-    wrap.appendChild(head);
-    const max = byCat[cats[0]] || 1;
-    cats.forEach((c) => {
-      const row = document.createElement("div");
-      row.className = "cat-row";
+    wrap.appendChild(el("div", "section-label",
+      ({ need: "Needs", want: "Wants", saving: "Saved" }[kindFilter && statsFilter.value] || "Spending") + " by category"));
+    const max = byCat[cats[0]].total || 1;
+    // the top few, the rest one tap away (the selected one always shows)
+    const shown = catsOpen ? cats : cats.filter((c, i) => i < TOP_CATS || (catFilter && statsFilter.value === c));
+    shown.forEach((c) => {
+      const t = byCat[c];
+      const row = el("div", "cat-row");
       if (catFilter && statsFilter.value === c) row.classList.add("active");
       else if (catFilter) row.classList.add("dim");
-      row.innerHTML =
-        '<div class="cat-row-top"><span>' + escapeHtml(c) + "</span><b>" + formatEuro(byCat[c]) + "</b></div>" +
-        '<div class="cat-track"><div class="cat-fill" style="width:' + ((byCat[c] / max) * 100) + '%"></div></div>';
+      const top = el("div", "cat-row-top");
+      top.appendChild(el("span", "", c));
+      top.appendChild(el("b", "", formatEuro(t.total)));
+      row.appendChild(top);
+      // one bar, split by need / want colour
+      const track = el("div", "cat-track");
+      ["need", "want", "save"].forEach((k) => {
+        if (!t[k]) return;
+        const seg = el("div", "cat-fill " + k);
+        seg.style.width = (t[k] / max) * 100 + "%";
+        track.appendChild(seg);
+      });
+      row.appendChild(track);
       row.addEventListener("click", () => setFilter("category", c));
       wrap.appendChild(row);
     });
+    if (cats.length > TOP_CATS) {
+      const more = el("button", "cat-more", catsOpen ? "Show less" : "Show all · " + (cats.length - TOP_CATS) + " more");
+      more.type = "button";
+      more.addEventListener("click", () => {
+        catsOpen = !catsOpen;
+        try { localStorage.setItem(LS.catsOpen, catsOpen ? "1" : ""); } catch (e) {}
+        haptic();
+        renderStats(statsRows);
+      });
+      wrap.appendChild(more);
+    }
   }
+  if (skipped.size) wrap.appendChild(el("div", "cat-skipped", "Not counted: " + Array.from(skipped).join(", ")));
 }
 
 function escapeHtml(s) {
@@ -1345,7 +1383,7 @@ function removeBtn(row) {
   const x = el("button", "hi-act del", "✕");
   x.type = "button";
   x.setAttribute("aria-label", "Remove");
-  x.addEventListener("click", () => row.remove());
+  x.addEventListener("click", () => { row.remove(); renderHideChips(); });
   return x;
 }
 
@@ -1361,7 +1399,29 @@ function addBillRow(b) {
   kind.addEventListener("click", () => { haptic(); setKind(row.dataset.kind === "want" ? "need" : "want"); });
   row.appendChild(kind);
   row.appendChild(removeBtn(row));
+  row.dataset.hide = b.hide ? "1" : "";
   $("#bs-bills").appendChild(row);
+  renderHideChips();
+}
+
+// One chip per bill: selected ones (rent…) are left out of "Spending by category".
+function renderHideChips() {
+  const wrap = $("#bs-hide");
+  wrap.innerHTML = "";
+  $$("#bs-bills .edit-row").forEach((row) => {
+    const name = row.querySelector(".er-name").value.trim();
+    if (!name) return;
+    const c = el("button", "chip" + (row.dataset.hide ? " selected" : ""), name);
+    c.type = "button";
+    c.addEventListener("click", () => {
+      haptic();
+      row.dataset.hide = row.dataset.hide ? "" : "1";
+      budgetDirty = true;
+      renderHideChips();
+    });
+    wrap.appendChild(c);
+  });
+  $("#bs-hide-wrap").hidden = !wrap.children.length;
 }
 
 function updateSplitHint() {
@@ -1414,6 +1474,7 @@ async function openBudgetSettings() {
   updateSplitHint();
   $("#bs-bills").innerHTML = "";
   (budget.bills || []).forEach(addBillRow);
+  renderHideChips();
   budgetDirty = false;
   showScreen("screen-budget");
   $("#screen-budget .hist-scroll").scrollTop = 0;
@@ -1440,7 +1501,9 @@ async function saveBudgetSettings() {
     const amount = parseMoney(row.querySelector(".er-amt").value);
     if (amount == null) { toast("Invalid amount for " + name, true); return; }
     const day = parseInt(row.querySelector(".er-day").value, 10);
-    bills.push({ name, amount, day: day >= 1 && day <= 31 ? day : null, kind: row.dataset.kind === "want" ? "want" : "need" });
+    const bill = { name, amount, day: day >= 1 && day <= 31 ? day : null, kind: row.dataset.kind === "want" ? "want" : "need" };
+    if (row.dataset.hide) bill.hide = true;
+    bills.push(bill);
   }
 
   const { data: { user } } = await sb.auth.getUser();
@@ -1667,6 +1730,7 @@ function wire() {
     if (e.target.closest(".er-kind, .hi-act, .add-row")) budgetDirty = true;
   });
   $("#bs-add-bill").addEventListener("click", () => addBillRow({}));
+  $("#bs-bills").addEventListener("input", (e) => { if (e.target.classList.contains("er-name")) renderHideChips(); });
   $("#bs-add-salary").addEventListener("click", () => addSalaryRow({ date: toDateInput(new Date()) }, true));
   $("#bs-save-btn").addEventListener("click", saveBudgetSettings);
   ["#bs-need", "#bs-want", "#bs-save"].forEach((id) => $(id).addEventListener("input", updateSplitHint));

@@ -357,7 +357,18 @@ body {
 .cat-row-top { display: flex; justify-content: space-between; font-size: 15px; margin-bottom: 6px; }
 .cat-row-top b { font-weight: 600; }
 .cat-track { height: 8px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
-.cat-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--accent), var(--accent-2)); transition: width .35s ease; }
+.cat-track { display: flex; }
+.cat-fill { height: 100%; flex: 0 0 auto; transition: width .35s ease; }
+.cat-fill:last-child { border-radius: 0 999px 999px 0; }
+.cat-fill.need { background: var(--need); }
+.cat-fill.want { background: var(--want); }
+.cat-fill.save { background: var(--save); }
+.cat-more {
+  border: none; background: transparent; color: var(--accent); font: inherit; font-size: 14px; font-weight: 600;
+  padding: 2px 0 6px; cursor: pointer;
+}
+.cat-skipped { color: var(--muted); font-size: 13px; margin: 4px 0 0; }
+.hide-chips { justify-content: flex-start; }
 
 .hist-sub { color: var(--muted); font-size: 14px; font-weight: 600; margin: 22px 0 8px; }
 .hist-day { color: var(--muted); font-size: 14px; font-weight: 600; padding: 14px 8px 6px; }
