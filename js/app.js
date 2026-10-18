@@ -50,6 +50,27 @@ let sb = null; // supabase client
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
+// Home-screen app on recent iOS: the viewport can come up short of the screen
+// by the status bar + home indicator, and env(safe-area-inset-bottom) reads 0,
+// so fixed layers stop above a black band. The app always owns the whole
+// screen there, so measure the shortfall and let the CSS stretch into it.
+function fitScreen() {
+  const standalone = navigator.standalone || matchMedia("(display-mode: standalone)").matches;
+  const el = document.activeElement;
+  if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA")) return; // keyboard up
+  const root = document.documentElement.style;
+  const portrait = innerHeight >= innerWidth;
+  const screenH = portrait ? Math.max(screen.height, screen.width) : Math.min(screen.height, screen.width);
+  const gap = standalone ? Math.max(0, Math.round(screenH - innerHeight)) : 0;
+  root.setProperty("--vp-gap", gap + "px");
+  // a gap only happens on Face ID iPhones, whose home indicator needs 34px
+  root.setProperty("--home-bar", gap > 0 && portrait ? "34px" : "0px");
+}
+fitScreen();
+addEventListener("resize", fitScreen);
+addEventListener("orientationchange", () => setTimeout(fitScreen, 300));
+addEventListener("pageshow", fitScreen);
+
 // Screens reachable from the tab bar, and their tab.
 const TABS = { "screen-home": "home", "screen-history": "insights", "screen-bills": "bills", "screen-budget": "settings" };
 
