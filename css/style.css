@@ -26,7 +26,8 @@
   --shadow-lg: 0 10px 40px rgba(18, 18, 22, .12);
   --radius: 22px;
   --safe-top: env(safe-area-inset-top, 0px);
-  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  /* --home-bar and --vp-gap are set by fitScreen() in app.js (0 otherwise) */
+  --safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--home-bar, 0px));
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -96,6 +97,7 @@ body {
 .screen {
   position: fixed;
   inset: 0;
+  bottom: calc(0px - var(--vp-gap, 0px));
   display: none;
   flex-direction: column;
   padding-top: var(--safe-top);
@@ -457,7 +459,7 @@ button.badge { border: none; cursor: pointer; font-family: inherit; line-height:
 
 /* ---- toast ---- */
 .toast {
-  position: fixed; left: 50%; bottom: calc(28px + var(--safe-bottom));
+  position: fixed; left: 50%; bottom: calc(28px + var(--safe-bottom) - var(--vp-gap, 0px));
   transform: translateX(-50%);
   background: var(--toast); color: var(--toast-text);
   padding: 12px 20px; border-radius: 999px; font-size: 15px;
@@ -587,9 +589,9 @@ button.badge { border: none; cursor: pointer; font-family: inherit; line-height:
 
 /* ---- tab bar ---- */
 body.tabbed .hist-scroll { padding-bottom: calc(112px + var(--safe-bottom)); }
-body.tabbed .toast { bottom: calc(104px + var(--safe-bottom)); }
+body.tabbed .toast { bottom: calc(104px + var(--safe-bottom) - var(--vp-gap, 0px)); }
 .tabbar {
-  position: fixed; z-index: 40; left: 12px; right: 12px; bottom: calc(10px + var(--safe-bottom));
+  position: fixed; z-index: 40; left: 12px; right: 12px; bottom: calc(10px + var(--safe-bottom) - var(--vp-gap, 0px));
   max-width: 520px; margin: 0 auto; height: 70px; border-radius: 28px;
   background: var(--surface); box-shadow: var(--shadow-lg);
   display: grid; grid-template-columns: repeat(5, 1fr); align-items: center;
@@ -727,7 +729,7 @@ body.tabbed .toast { bottom: calc(104px + var(--safe-bottom)); }
 .bills-bar { margin-top: 16px; }
 
 /* budget month picker */
-.sheet { position: fixed; inset: 0; z-index: 60; background: rgba(10, 10, 14, .38); display: flex; align-items: flex-end; animation: fade .15s ease; }
+.sheet { position: fixed; inset: 0; bottom: calc(0px - var(--vp-gap, 0px)); z-index: 60; background: rgba(10, 10, 14, .38); display: flex; align-items: flex-end; animation: fade .15s ease; }
 .sheet-card {
   width: 100%; max-height: 70vh; overflow-y: auto; background: var(--surface); border-radius: 26px 26px 0 0;
   padding: 18px 16px calc(18px + var(--safe-bottom)); box-shadow: var(--shadow-lg);
