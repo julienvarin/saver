@@ -3,11 +3,18 @@
 The fastest, most minimal euro expense tracker — a home-screen web app (PWA)
 hosted on GitHub Pages, with data in your own Supabase project.
 
-**The flow:** type the amount → Next → title + category on one screen → tap Need or Want → saved.
+**Home** shows your month at a glance: what's left to spend (a ring of how much is gone), what's
+safe to spend today, how you compare with last month, one tip (an overdue bill, wants running
+hot, money still owed to you…), your three budgets, the next bills and your latest entries.
+Tap **October budget ▾** to look back at a past month. The tab bar has Home, **Insights**
+(the full stats), **Bills** and **Settings**, with the big **+** in the middle.
+
+**The flow:** tap **+** → type the amount → Next → title + category on one screen → tap Need or Want → saved.
 Things you've logged before show up as one-tap chips ("Lidl · Groceries"), so a repeat
 expense is just the amount and one tap. The **Today ▾** chip logs it on another day, and
 every save, delete or bill payment can be undone from the toast.
-Tap the chart icon for Stats: tap a budget bucket or the pending line to filter the list.
+On Insights, tap a budget bucket or the pending line to filter the list (tapping a budget on Home
+opens it filtered too).
 
 No build step, no framework — plain HTML/CSS/JS + the Supabase JS client from a CDN.
 
@@ -87,7 +94,7 @@ Keep new changes in the same style (`add column if not exists`, `drop ... if exi
 
 ## Budget
 
-Tap **⚙** at the top of Stats to set:
+Open the **Settings** tab (or ⚙ at the top of Insights) to set:
 
 - **Salary received** — each salary starts a new budget month, running until the next one
   lands (so a salary on the 3rd gives a 3rd → 2nd month). Tap **+ New salary** on the Stats
@@ -142,7 +149,8 @@ are mostly fixed bills, so they'd dwarf everything else; tap the Needs bar to se
   use doesn't show up. Add one with **+**. Before your first expense you get the starter list in
   `CATEGORIES` at the top of [`js/app.js`](js/app.js); retired names (Food, Drinks, Subscriptions)
   are mapped to their new ones in `RENAMED` just below it.
-- **Colours / look:** the CSS variables at the top of [`css/style.css`](css/style.css).
+- **Colours / look:** the CSS variables at the top of [`css/style.css`](css/style.css) — light by
+  default, dark when your phone is in dark mode.
 - **App icon:** re-run `python3 scripts/gen_icons.py` after tweaking the colours in that script.
 
 ## How your data is protected

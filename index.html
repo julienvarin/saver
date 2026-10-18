@@ -8,10 +8,11 @@
 
   <!-- PWA / iOS home-screen -->
   <link rel="manifest" href="manifest.webmanifest" />
-  <meta name="theme-color" content="#0b0b0f" />
+  <meta name="theme-color" content="#f4f3f0" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#0b0b0f" media="(prefers-color-scheme: dark)" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="Saver" />
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
   <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png" />
@@ -51,11 +52,47 @@
     </div>
   </section>
 
+  <!-- Home: budget at a glance -->
+  <section id="screen-home" class="screen">
+    <div id="home-scroll" class="hist-scroll home-scroll">
+      <header class="home-head">
+        <div class="home-hi">
+          <div id="home-date" class="home-date"></div>
+          <h1 id="home-hello" class="home-hello"></h1>
+        </div>
+        <button id="home-bell" class="round-btn" type="button" aria-label="Bills"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg><span id="home-bell-dot" class="bell-dot" hidden></span></button>
+        <button id="home-avatar" class="round-btn avatar" type="button" aria-label="Budget settings"></button>
+      </header>
+
+      <div id="hero" class="hero"></div>
+
+      <div class="quick">
+        <button id="q-add" class="quick-btn" type="button"><span class="quick-ico"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span>Add</button>
+        <button id="q-in" class="quick-btn" type="button"><span class="quick-ico">💶</span>Money in</button>
+        <button id="q-salary" class="quick-btn" type="button"><span class="quick-ico">💼</span>Salary</button>
+        <button id="q-bills" class="quick-btn" type="button"><span class="quick-ico">🧾</span>Bills</button>
+      </div>
+
+      <div id="home-tip"></div>
+
+      <div class="sec-head"><h2>Budgets</h2><button id="home-see-budgets" class="link" type="button">See all</button></div>
+      <div id="home-budgets" class="card-list"></div>
+
+      <div id="home-bills-wrap" hidden>
+        <div class="sec-head"><h2>Bills</h2><button id="home-see-bills" class="link" type="button">See all</button></div>
+        <div id="home-bills"></div>
+      </div>
+
+      <div class="sec-head"><h2>Recent</h2><button id="home-see-all" class="link" type="button">See all</button></div>
+      <div id="home-recent" class="hist-list-inner"></div>
+    </div>
+  </section>
+
   <!-- Entry flow -->
   <section id="screen-entry" class="screen">
     <!-- top bar: today's context + history -->
     <header class="topbar">
-      <button id="go-history" class="icon-btn" aria-label="Stats"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 20V12M12 20V5M19 20v-9"/></svg></button>
+      <button id="entry-close" class="icon-btn" aria-label="Close"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
       <span id="progress" class="progress"></span>
       <span class="icon-btn" aria-hidden="true"></span>
     </header>
@@ -129,8 +166,8 @@
   <!-- History / stats -->
   <section id="screen-history" class="screen">
     <header class="topbar">
-      <button id="hist-back" class="icon-btn" aria-label="Back">‹</button>
-      <span class="progress">Stats</span>
+      <span class="icon-btn" aria-hidden="true"></span>
+      <span class="progress">Insights</span>
       <button id="go-budget" class="icon-btn" aria-label="Budget settings">⚙</button>
     </header>
 
@@ -174,6 +211,19 @@
     </div>
   </section>
 
+  <!-- Bills -->
+  <section id="screen-bills" class="screen">
+    <header class="topbar">
+      <span class="icon-btn" aria-hidden="true"></span>
+      <span class="progress">Bills</span>
+      <button id="bills-edit" class="icon-btn" aria-label="Edit bills">⚙</button>
+    </header>
+    <div class="hist-scroll">
+      <div id="bills-sum"></div>
+      <div id="bills-list"></div>
+    </div>
+  </section>
+
   <!-- Budget settings -->
   <section id="screen-budget" class="screen">
     <header class="topbar">
@@ -205,6 +255,23 @@
       <button id="sign-out" class="btn ghost small wide sign-out" type="button">Sign out</button>
     </div>
   </section>
+
+  <!-- Tab bar (Home, Insights, Bills, Settings) -->
+  <nav id="tabbar" class="tabbar" hidden>
+    <button class="tab" data-tab="home" type="button"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M10.6 3.5a2.2 2.2 0 0 1 2.8 0l6.6 5.6c.6.5 1 1.2 1 2V19a2 2 0 0 1-2 2h-3.5a1 1 0 0 1-1-1v-4.5a1 1 0 0 0-1-1h-3a1 1 0 0 0-1 1V20a1 1 0 0 1-1 1H5a2 2 0 0 1-2-2v-7.9c0-.8.4-1.5 1-2z"/></svg>Home</button>
+    <button class="tab" data-tab="insights" type="button"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg>Insights</button>
+    <button id="tab-add" class="tab-fab" type="button" aria-label="Add expense"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
+    <button class="tab" data-tab="bills" type="button"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5" width="19" height="14" rx="3"/><path d="M2.5 10h19M6.5 15h4"/></svg>Bills</button>
+    <button class="tab" data-tab="settings" type="button"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Settings</button>
+  </nav>
+
+  <!-- Budget month picker -->
+  <div id="sheet" class="sheet" hidden>
+    <div class="sheet-card">
+      <div class="sheet-title">Budget month</div>
+      <div id="sheet-list"></div>
+    </div>
+  </div>
 
   <!-- Toast -->
   <div id="toast" class="toast" hidden><span id="toast-msg"></span><button id="toast-act" class="toast-act" type="button" hidden></button></div>
