@@ -86,18 +86,22 @@ body::before {
 }
 @media (prefers-color-scheme: dark) { body::before { background: var(--bg); } }
 
-/* installed iOS 26 app (WebKit bug 301108): while the page is shorter than
-   the screen, the viewport stops short by the status bar and fixed layers
-   can't draw below it, leaving a band at the bottom. A screen-tall page gets
-   the full viewport; body's overflow: hidden keeps it from scrolling. */
-@media (display-mode: standalone) {
-  html { min-height: max(100lvh, calc(100% + env(safe-area-inset-top, 0px))); }
-}
-
 body {
   overflow: hidden;
   user-select: none;
   -webkit-user-select: none;
+}
+
+/* installed iOS 26 app (WebKit bug 301108): while the page is shorter than
+   the screen, the view stops short by the status bar and nothing draws below
+   it, leaving a band at the bottom. iOS only hands over the full screen once
+   the page is taller than that, so make it so. body's overflow: hidden seems
+   to stop that from counting (the page can't scroll), so it's off here; min()
+   caps it at the screen height so once the view is full there's nothing left
+   to scroll (all screens are position: fixed). */
+@media (display-mode: standalone) {
+  html { min-height: min(100lvh, calc(100% + env(safe-area-inset-top, 0px))); }
+  html, body { overflow: visible; }
 }
 
 /* ---- screens ---- */
