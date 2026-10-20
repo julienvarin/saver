@@ -3,18 +3,24 @@
 The fastest, most minimal euro expense tracker — a home-screen web app (PWA)
 hosted on GitHub Pages, with data in your own Supabase project.
 
-**Home** shows your month at a glance: what's left to spend (a ring of how much is gone), what's
-safe to spend today, how you compare with last month, one tip (an overdue bill, wants running
-hot, money still owed to you…), your three budgets, the next bills and your latest entries.
-Tap **October budget ▾** to look back at a past month. The tab bar has Home, **Insights**
-(the full stats), **Bills** and **Settings**, with the big **+** in the middle.
+**Home** is this budget month at a glance: what's left to spend (a ring of how much is gone), what's
+safe to spend today, how you compare with last month, your three budgets, the next bills and your
+latest entries. The 🔔 lists everything that needs you (overdue or upcoming bills, overspending,
+payday, money owed to you) with a count of what's new; the most urgent one also shows on Home.
+
+**Insights** goes month by month (‹ ›): what you spent and how it compares, a day-by-day spending
+pace against last month and your budget, where it went against your plan, wants / needs by category
+(with the change since last month), the last six months, and every transaction with filters. Tap a
+budget, a category or a tile to filter the transactions.
+
+**Bills** is this month's checklist (Mark paid logs one); **Edit** changes the list itself.
+**Settings** has your salaries, the split, how reimbursable expenses count, and your account.
 
 **The flow:** tap **+** → type the amount → Next → title + category on one screen → tap Need or Want → saved.
-Things you've logged before show up as one-tap chips ("Lidl · Groceries"), so a repeat
-expense is just the amount and one tap. The **Today ▾** chip logs it on another day, and
-every save, delete or bill payment can be undone from the toast.
-On Insights, tap a budget bucket or the pending line to filter the list (tapping a budget on Home
-opens it filtered too).
+The switch above the keypad turns it into **Money in** or a **Salary**. Things you've logged before
+show up as one-tap chips ("Lidl · Groceries"), so a repeat expense is just the amount and one tap.
+The **Today ▾** chip logs it on another day. Tap any entry to edit or delete it; every save, delete
+or bill payment can be undone from the toast.
 
 No build step, no framework — plain HTML/CSS/JS + the Supabase JS client from a CDN.
 
@@ -94,36 +100,36 @@ Keep new changes in the same style (`add column if not exists`, `drop ... if exi
 
 ## Budget
 
-Open the **Settings** tab (or ⚙ at the top of Insights) to set:
+Open the **Settings** tab to set:
 
 - **Salary received** — each salary starts a new budget month, running until the next one
-  lands (so a salary on the 3rd gives a 3rd → 2nd month). Tap **+ New salary** on the Stats
-  card when it arrives. Before your first salary, Stats uses calendar months.
+  lands (so a salary on the 3rd gives a 3rd → 2nd month). When it arrives, tap **+** → **Salary**.
+  Before your first salary, budget months are calendar months.
 - **Split** — how your salary divides into Needs / Wants / Save (default 50 / 30 / 20). Each
   bar's line is exactly that share of your salary (plus any **Extra** money in, see below).
-- **Bills** — recurring payments, subscriptions included, with their usual day. Tap the **Need / Want**
-  toggle on each: rent and electricity are needs, Spotify is a want. Unpaid ones are reserved
-  from their own budget (due on the first occurrence of their day after payday); tap **Paid**
-  to log one. On Stats they're folded behind one line ("1 to pay · €700") — tap it to open
-  the list. Want subscriptions are left out of the day-to-day "pace" so they don't skew it.
+**Bills** live on the Bills tab (**Edit** to change them): recurring payments, subscriptions
+included, with their usual day. Tap the **Need / Want** toggle on each: rent and electricity are
+needs, Spotify is a want. Unpaid ones are reserved from their own budget (due on the first
+occurrence of their day after payday); tap **Mark paid** to log one. Want subscriptions are left
+out of the day-to-day "pace" so they don't skew it.
 
-**+ New salary** opens the keypad with your last salary; tap **Save** (or type the new amount).
+**+** → **Salary** opens the keypad with your last salary; tap **Save** (or type the new amount).
 
-**Money in** (a sub-tenant paying you, a refund, a side job): tap **+ Money in** on the Stats
-card. Sources you've logged before show up as chips with their last amount — one tap logs it
-again. For a new one, type a title, pick where it goes, tap **Save**, then the amount:
+**Money in** (a sub-tenant paying you, a refund, a side job): tap **+** → **Money in**. Sources
+you've logged before show up as chips with their last amount — tap **Next** without an amount, then
+one tap logs it again. For a new one, type the amount, a title, pick where it goes and tap **Save**:
 
 - **Covers bills** (a sub-tenant paying rent, internet, electricity) — taken off what you spent
   on Needs, so the Needs bar shows your own share. No line moves.
 - **Extra · split** (a DJ fee, an eBay sale) — added to your salary and split by the same
   percentages, so every line grows.
 
-Each source remembers its choice, so the chip logs it the same way next time. Tap **+ €… in** on the Stats card to list what came in, and
-edit or delete it from there. If someone
+Each source remembers its choice, so the chip logs it the same way next time. Tap **+ €… money in**
+on Home to list what came in, and edit or delete it from there. If someone
 pays you back for part of a specific expense, mark that expense **Reimbursable** instead.
 
 Each expense is **Need**, **Want** or **Save** (money put aside). A late bill or overdue invoice
-is just a **Need**. The Stats card is three bars — solid is what's spent (or saved), hatched is
+is just a **Need**. Home's budgets are three bars — solid is what's spent (or saved), hatched is
 what's still planned:
 
 - **Wants** — spent, plus subscriptions still to come. The white line is today: stay left of it.
@@ -133,11 +139,11 @@ what's still planned:
 
 A bar that goes past its line gets an outline: red for Needs / Wants, green for Save.
 
-When the month has reimbursable expenses, a small **↩︎** toggle on the card switches how they
-count: highlighted takes the refund off (what's left on you), off counts the whole amount.
+Reimbursable expenses count as what's left on you after the refund; Settings can switch them to
+the full amount. Mark the money as received with the **got it?** badge on the entry.
 
-**Wants by category** shows where your wants money goes — that's where you can cut back. Needs
-are mostly fixed bills, so they'd dwarf everything else; tap the Needs bar to see them instead.
+**By category** on Insights starts on wants — that's where you can cut back. Needs are mostly
+fixed bills; switch to them with the toggle.
 
 > Upgrading? Re-run [`supabase/schema.sql`](supabase/schema.sql) once (the workflow does it on
 > merge) — it adds the `budgets` table, and turns old **Debt** entries into
