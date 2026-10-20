@@ -795,3 +795,36 @@ button.set-row { cursor: pointer; font-weight: 600; }
 .info-body { padding: 4px 4px 8px; }
 .info-body p { margin: 0 0 12px; font-size: 15px; line-height: 1.45; color: var(--text); }
 .info-body p + p { color: var(--muted); }
+
+/* card payments to confirm (Apple Pay inbox) */
+.ib-hint { margin: 0 4px 8px; }
+.ib-row { padding: 12px 4px; border-bottom: 1px solid var(--line); }
+.ib-row:last-child { border-bottom: none; }
+.ib-top {
+  display: flex; align-items: center; gap: 12px; width: 100%; border: none; background: none; padding: 0;
+  font: inherit; color: var(--text); text-align: left; cursor: pointer;
+}
+.ib-sub { color: var(--muted); font-size: 13px; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ib-dup { color: var(--want-text); font-size: 13px; font-weight: 600; margin-top: 3px; }
+.ib-acts { display: flex; gap: 8px; margin-top: 10px; }
+.ib-btn {
+  flex: 1; border: 1.5px solid var(--line); background: var(--surface-2); color: var(--text); font: inherit;
+  font-size: 15px; font-weight: 600; padding: 10px; border-radius: 12px; cursor: pointer;
+}
+.ib-btn:active { transform: scale(0.96); }
+.ib-btn.x { flex: 0 0 auto; min-width: 48px; color: var(--muted); }
+.ib-btn.need.guess { background: var(--need); border-color: var(--need); color: #04120c; }
+.ib-btn.want.guess { background: var(--want); border-color: var(--want); color: #1f1300; }
+.ib-btn.x.guess { background: var(--text); border-color: var(--text); color: var(--surface); }
+.set-row b.accent { color: var(--accent-2); }
+
+/* settings → Apple Pay setup */
+.cs-steps { margin: 0 0 14px; padding-left: 22px; font-size: 15px; line-height: 1.45; }
+.cs-steps li + li { margin-top: 8px; }
+.cp-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; background: var(--surface-2); border-radius: 14px; margin-bottom: 8px; }
+.cp-main { flex: 1; min-width: 0; }
+.cp-label { color: var(--muted); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+.cp-value { font-family: ui-monospace, Menlo, monospace; font-size: 13px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cp-note { color: var(--muted); font-size: 12px; margin-top: 3px; }
+.card-setup .small-hint { margin: 10px 0 6px; }
+.cs-renew { display: block; margin: 8px auto 0; font-size: 14px; color: var(--danger); }

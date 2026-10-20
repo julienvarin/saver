@@ -129,6 +129,7 @@ const entry = {
   catsTouched: false, // categories picked by hand: don't overwrite them from a known title
   returnTo: null, // tab screen the entry started from: go back there once saved
   extra: false, // money in: extra (split like the salary) rather than covering bills
+  inbox: null, // the card payment being confirmed (removed from the inbox once saved)
 };
 
 function resetEntry() {
@@ -148,6 +149,7 @@ function resetEntry() {
   entry.prefilled = false;
   entry.catsTouched = false;
   entry.returnTo = null;
+  entry.inbox = null;
   renderAmount();
   $("#title-input").value = "";
   resetChips();
@@ -179,10 +181,11 @@ function updateProgress(stepId) {
   let label = "";
   if (stepId !== "step-saved") {
     if (entry.editId) label = "Edit " + what;
+    else if (entry.inbox) label = "Card payment";
     else if (stepId === "step-details") label = entry.kind === "income" ? "Money in" : "New expense";
   }
   $("#progress").textContent = label;
-  $("#mode").hidden = stepId !== "step-amount" || !!entry.editId;
+  $("#mode").hidden = stepId !== "step-amount" || !!entry.editId || !!entry.inbox;
   $$("#mode button").forEach((b) => {
     const on = b.dataset.mode === entryMode();
     b.classList.toggle("active", on);
@@ -426,11 +429,9 @@ function rememberCats(cats) {
 
 // Learn the categories and remembered titles from your expenses, most used first.
 async function refreshSavedCats() {
-  const { data, error } = await sb
-    .from("expenses")
-    .select("title, amount, categories, kind, created_at")
-    .order("created_at", { ascending: false })
-    .limit(2000);
+  const query = (cols) => sb.from("expenses").select(cols).order("created_at", { ascending: false }).limit(2000);
+  let { data, error } = await query("title, amount, categories, kind, created_at, merchant");
+  if (error) ({ data, error } = await query("title, amount, categories, kind, created_at")); // old schema
   if (error || !data) return;
   data.forEach((r) => { r.categories = canonCats(r.categories); });
   learnTitles(data);
@@ -443,6 +444,7 @@ async function refreshSavedCats() {
 
 /* ---- remembered titles: one tap re-logs "Lidl · Groceries · Need" ---- */
 let known = new Map(); // norm(title) -> { key, title, amount, categories, kind, count }, most recent first
+let byMerchant = new Map(); // merchantKey(merchant) -> what a card payment there was last logged as
 
 // Case, accent and spacing-insensitive key ("  loyer " == "Loyer").
 function norm(s) {
@@ -460,6 +462,8 @@ function learnTitles(rows) {
     else next.set(key, { key, title: r.title.trim(), amount: Number(r.amount) || 0, categories: r.categories || [], kind: r.kind, count: 1 });
   });
   known = next;
+  byMerchant = new Map();
+  rows.slice().reverse().forEach(rememberMerchant); // oldest first: the latest use wins
 }
 
 // Put a just-saved entry at the front of the remembered titles.
@@ -576,6 +580,11 @@ async function saveExpense() {
   const editing = !!entry.editId;
   const createdAt = editedCreatedAt();
   if (createdAt) record.created_at = createdAt;
+  const card = entry.inbox;
+  if (card) {
+    record.merchant = card.merchant;
+    if (!createdAt) record.created_at = card.created_at; // when you paid, not when you confirmed
+  }
 
   // optimistic confirmation
   $("#saved-amount").textContent = formatEuro(entry.amount);
@@ -598,18 +607,22 @@ async function saveExpense() {
   const back = entry.returnTo || "screen-home";
   const newId = !editing && data && data[0] ? data[0].id : null;
   rememberTitle(record);
+  rememberMerchant(record);
+  if (card) await removeFromInbox(card);
   setTimeout(() => {
     resetEntry();
     rememberCats(savedCatsUsed);
     showStep("step-amount");
     goScreen(back);
-    if (newId) toast("Saved " + (record.title || formatEuro(record.amount)), false, { label: "Undo", fn: () => undoInsert(newId) });
+    if (newId) toast("Saved " + (record.title || formatEuro(record.amount)), false, { label: "Undo", fn: () => undoInsert(newId, card) });
   }, 650);
 }
 
-async function undoInsert(id) {
+// card: the card payment it came from goes back to the inbox
+async function undoInsert(id, card) {
   const { error } = await sb.from("expenses").delete().eq("id", id);
   if (error) { toast(error.message, true); return; }
+  if (card) await sb.from("card_inbox").insert(card);
   haptic();
   toast("Removed");
   refresh();
@@ -1669,6 +1682,242 @@ async function saveBudgetSettings() {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Card payments: Apple Pay → Shortcut → inbox → one tap              */
+/* ------------------------------------------------------------------ */
+// An iPhone Shortcut (Wallet "Transaction" automation) posts each Apple Pay
+// payment to log_card_payment() in Supabase. They wait in card_inbox until
+// you tap Need / Want; the title, categories and kind are guessed from what
+// you logged there (or under that name) before.
+let inbox = [];     // card payments to confirm, newest first
+let homeRows = [];  // this month's entries, to spot a payment you already logged by hand
+
+async function loadInbox() {
+  const { data, error } = await sb.from("card_inbox").select("*").order("created_at", { ascending: false }).limit(50);
+  inbox = error ? [] : data || []; // no table yet (old schema): nothing to confirm
+}
+
+// "LIDL*1234 PARIS" → "lidl 1234 paris": what's compared between merchants and titles.
+function merchantKey(s) {
+  return norm(s).replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function rememberMerchant(r) {
+  if (!r.merchant || !r.kind || r.kind === "income") return;
+  byMerchant.set(merchantKey(r.merchant), { title: r.title || r.merchant, categories: r.categories || [], kind: r.kind });
+}
+
+// "CARREFOUR CITY" → "Carrefour City"; mixed case is left alone.
+function tidyMerchant(m) {
+  const t = String(m || "").trim().replace(/\s+/g, " ");
+  return t === t.toUpperCase() ? t.toLowerCase().replace(/(^|[\s'-])\S/g, (c) => c.toUpperCase()) : t;
+}
+
+// { title, categories, kind } for a card payment: what this merchant was last
+// logged as, else a title you use that matches it word for word ("Lidl" in
+// "LIDL DIENSTLEISTUNG"), most used first. kind is null when there's no clue.
+function guessFor(item) {
+  const m = merchantKey(item.merchant);
+  const fresh = { title: tidyMerchant(item.merchant) || "Card payment", categories: [], kind: null };
+  if (!m) return fresh;
+  const seen = byMerchant.get(m);
+  if (seen) return { title: seen.title, categories: seen.categories.slice(), kind: seen.kind };
+  const words = (s) => " " + s + " ";
+  const hit = Array.from(known.values())
+    .filter((k) => k.kind !== "income")
+    .map((k) => ({ k, t: merchantKey(k.title) }))
+    .filter(({ t }) => t.length >= 3 && (words(m).includes(words(t)) || (m.length >= 3 && words(t).includes(words(m)))))
+    .sort((a, b) => b.k.count - a.k.count)[0];
+  return hit ? { title: hit.k.title, categories: hit.k.categories.slice(), kind: hit.k.kind } : fresh;
+}
+
+// An entry you logged by hand for the same amount within a day: probably this payment.
+function alreadyLogged(item) {
+  const when = new Date(item.created_at);
+  return homeRows.find((r) => !r.merchant && !isIncome(r) && Math.round(Number(r.amount)) === Math.round(Number(item.amount))
+    && Math.abs(new Date(r.created_at) - when) < DAY);
+}
+
+function inboxAlert() {
+  const n = inbox.length;
+  const names = inbox.slice(0, 3).map((i) => guessFor(i).title + " " + euro0(i.amount)).join(", ") + (n > 3 ? "…" : "");
+  return { id: "inbox-" + inbox[0].id + "-" + n, icon: "💳",
+    title: n === 1 ? "Confirm " + guessFor(inbox[0]).title + " · " + euro0(inbox[0].amount) : n + " card payments to confirm",
+    body: (n === 1 ? "Paid with Apple Pay " + dayLabel(new Date(inbox[0].created_at)).toLowerCase() : names) + ". Tap Need or Want to log " + (n === 1 ? "it." : "them."),
+    fn: openInbox };
+}
+
+async function removeFromInbox(item) {
+  inbox = inbox.filter((i) => i.id !== item.id);
+  const { error } = await sb.from("card_inbox").delete().eq("id", item.id);
+  if (error) console.error(error);
+}
+
+// One tap: log it with the guessed title and categories as a need or a want.
+async function confirmCard(item, kind) {
+  haptic();
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) { showScreen("screen-auth"); return; }
+  const g = guessFor(item);
+  const record = { user_id: user.id, amount: Math.round(Number(item.amount) || 0), title: g.title, categories: g.categories,
+    kind, merchant: item.merchant, created_at: item.created_at };
+  const { data, error } = await sb.from("expenses").insert(record).select();
+  if (error) { toast("Couldn't save: " + error.message, true); return; }
+  rememberTitle(record);
+  rememberMerchant(record);
+  rememberCats(record.categories);
+  await removeFromInbox(item);
+  afterInboxChange();
+  const id = data && data[0] && data[0].id;
+  toast("Logged " + record.title + " · " + (kind === "need" ? "Need" : "Want"), false, id ? { label: "Undo", fn: () => undoInsert(id, item) } : null);
+}
+
+// Not an expense (or already logged by hand): drop it.
+async function dismissCard(item) {
+  haptic();
+  await removeFromInbox(item);
+  afterInboxChange();
+  toast("Dismissed", false, { label: "Undo", fn: async () => {
+    const { error } = await sb.from("card_inbox").insert(item);
+    if (error) { toast(error.message, true); return; }
+    refresh();
+  } });
+}
+
+// Tap the payment itself to change the title, categories, day or amount first.
+function editCard(item) {
+  haptic();
+  $("#sheet").hidden = true;
+  const g = guessFor(item);
+  const back = currentTab();
+  resetEntry();
+  entry.returnTo = back;
+  entry.inbox = item;
+  entry.amount = Math.round(Number(item.amount) || 0);
+  entry.title = g.title;
+  entry.createdAt = item.created_at;
+  entry.date = toDateInput(new Date(item.created_at));
+  entry.catsTouched = g.categories.length > 0;
+  applyCategories(g.categories);
+  renderAmount();
+  $("#title-input").value = entry.title;
+  showScreen("screen-entry");
+  enterDetails();
+  updateKindUI(g.kind);
+}
+
+function afterInboxChange() {
+  if (!$("#sheet").hidden && $("#sheet").dataset.view === "inbox") {
+    if (inbox.length) openInbox(); else $("#sheet").hidden = true;
+  }
+  refresh();
+}
+
+function inboxRow(item) {
+  const g = guessFor(item);
+  const dup = alreadyLogged(item);
+  const row = el("div", "ib-row");
+  const top = el("button", "ib-top");
+  top.type = "button";
+  const main = el("div", "hi-main");
+  main.appendChild(el("div", "hi-title", g.title));
+  const when = new Date(item.created_at);
+  const sub = [dayLabel(when) + " " + when.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })];
+  sub.push(g.categories.length ? g.categories.join(" · ") : "No category yet");
+  main.appendChild(el("div", "ib-sub", sub.join(" · ")));
+  if (dup) main.appendChild(el("div", "ib-dup", "Already logged as " + (dup.title || "an entry") + "?"));
+  top.appendChild(main);
+  top.appendChild(el("div", "hi-amount", euro0(item.amount)));
+  top.addEventListener("click", () => editCard(item));
+  row.appendChild(top);
+  const acts = el("div", "ib-acts");
+  [["need", "Need"], ["want", "Want"]].forEach(([k, label]) => {
+    const b = el("button", "ib-btn " + k + (g.kind === k && !dup ? " guess" : ""), label);
+    b.type = "button";
+    b.addEventListener("click", () => confirmCard(item, k));
+    acts.appendChild(b);
+  });
+  const x = el("button", "ib-btn x" + (dup ? " guess" : ""), dup ? "Dismiss" : "✕");
+  x.type = "button";
+  x.setAttribute("aria-label", "Dismiss");
+  x.addEventListener("click", () => dismissCard(item));
+  acts.appendChild(x);
+  row.appendChild(acts);
+  return row;
+}
+
+function openInbox() {
+  const list = el("div", "ib-list");
+  list.appendChild(el("p", "hint small-hint ib-hint", "Tap Need or Want to log a payment as guessed, or tap it to change the details first."));
+  inbox.forEach((i) => list.appendChild(inboxRow(i)));
+  openSheet("Card payments to confirm", [list]);
+  $("#sheet").dataset.view = "inbox";
+}
+
+/* ---- settings: the Shortcut that sends Apple Pay payments here ---- */
+// The Shortcut's secret, created on first use. renew: a new one (the old one stops working).
+async function cardToken(renew) {
+  if (renew) {
+    const { data: { user } } = await sb.auth.getUser();
+    if (!user) return { error: { message: "Not signed in" } };
+    const { error } = await sb.from("card_tokens").delete().eq("user_id", user.id);
+    if (error) return { error };
+  }
+  const { data, error } = await sb.from("card_tokens").select("token").maybeSingle();
+  if (error) return { error };
+  if (data) return { token: data.token };
+  const ins = await sb.from("card_tokens").insert({}).select("token").single();
+  return ins.error ? { error: ins.error } : { token: ins.data.token };
+}
+
+function copyRow(label, value, note) {
+  const row = el("div", "cp-row");
+  const main = el("div", "cp-main");
+  main.appendChild(el("div", "cp-label", label));
+  main.appendChild(el("div", "cp-value", value));
+  if (note) main.appendChild(el("div", "cp-note", note));
+  row.appendChild(main);
+  const b = el("button", "plan-act", "Copy");
+  b.type = "button";
+  b.addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(value); haptic(); b.textContent = "Copied ✓"; b.classList.add("done"); }
+    catch (e) { toast("Couldn't copy — select it instead", true); }
+  });
+  row.appendChild(b);
+  return row;
+}
+
+async function openCardSetup() {
+  haptic();
+  const { token, error } = await cardToken(false);
+  if (error) { toast("Re-run supabase/schema.sql first", true); return; }
+  const cfg = getConfig();
+  const body = el("div", "info-body card-setup");
+  const step = (html) => { const li = el("li"); li.innerHTML = html; return li; };
+  body.appendChild(el("p", "", "Every Apple Pay payment lands in Notifications with its title, category and Need / Want guessed. One tap logs it."));
+  const ol = el("ol", "cs-steps");
+  ol.appendChild(step("In <b>Shortcuts</b>, open <b>Automation</b> → <b>+</b> → <b>Transaction</b>. Pick your N26 card, then <b>Run Immediately</b> (turn <b>Notify When Run</b> off) → <b>Next</b> → <b>New Blank Automation</b>."));
+  ol.appendChild(step("Add <b>Get Contents of URL</b> and paste the <b>URL</b> below."));
+  ol.appendChild(step("Tap <b>›</b> to show more: <b>Method</b> POST. Under <b>Headers</b> add <b>apikey</b> = the key below."));
+  ol.appendChild(step("<b>Request Body</b> JSON, four Text fields: <b>token</b> = the token below, <b>amount</b> = Shortcut Input → <i>Amount</i>, <b>merchant</b> = Shortcut Input → <i>Merchant</i>, <b>card</b> = Shortcut Input → <i>Card</i>. <b>Done</b>."));
+  body.appendChild(ol);
+  body.appendChild(copyRow("URL", cfg.url + "/rest/v1/rpc/log_card_payment"));
+  body.appendChild(copyRow("apikey", cfg.key));
+  body.appendChild(copyRow("token", token, "Your secret: anyone with it can add payments to confirm."));
+  body.appendChild(el("p", "hint small-hint", "Only Apple Pay taps come through: online card payments, direct debits and transfers still need logging by hand (bills cover most of those). Amounts are rounded to the euro."));
+  const renew = el("button", "link cs-renew", "Make a new token");
+  renew.type = "button";
+  renew.addEventListener("click", async () => {
+    if (!confirm("Make a new token? The Shortcut stops working until you paste the new one.")) return;
+    const r = await cardToken(true);
+    if (r.error) { toast(r.error.message, true); return; }
+    toast("New token made");
+    openCardSetup();
+  });
+  body.appendChild(renew);
+  openSheet("Log Apple Pay automatically", [body]);
+}
+
+/* ------------------------------------------------------------------ */
 /*  Home: this budget month at a glance                                */
 /* ------------------------------------------------------------------ */
 let homeSeq = 0; // drops a slow load when a newer one started
@@ -1685,7 +1934,7 @@ async function loadHome() {
   if (!budgetLoaded) await loadBudget();
   const period = periodFor(new Date());
   const prev = periodFor(addDays(period.start, -1));
-  const [cur, old] = await Promise.all([fetchRows(period), fetchRows(prev)]);
+  const [cur, old] = await Promise.all([fetchRows(period), fetchRows(prev), loadInbox()]);
   if (seq !== homeSeq) return;
   if (cur.error) { toast(cur.error.message, true); return; }
   renderHome(period, cur.data, old.error ? null : old.data, prev);
@@ -1829,6 +2078,7 @@ function renderHero(period, rows, prevRows, prev, f) {
 // stable for as long as the situation lasts, so "seen" and "dismissed" stick.
 function homeAlerts(period, rows, f) {
   const out = [];
+  if (inbox.length) out.push(inboxAlert());
   if (budgetMissing) return out;
   const todayDate = startOfDay(new Date());
   const pid = "@" + toDateInput(period.start);
@@ -1914,6 +2164,7 @@ function openSheet(title, nodes) {
   const list = $("#sheet-list");
   list.innerHTML = "";
   nodes.forEach((n) => list.appendChild(n));
+  $("#sheet").dataset.view = "";
   $("#sheet").hidden = false;
 }
 
@@ -1924,7 +2175,7 @@ function openAlerts() {
     const empty = el("div", "sheet-empty");
     empty.appendChild(el("div", "sheet-empty-ico", "✓"));
     empty.appendChild(el("div", "tip-title", "You're all caught up"));
-    empty.appendChild(el("div", "tip-body", "Bills due soon or overdue, overspending, payday and money owed to you show up here."));
+    empty.appendChild(el("div", "tip-body", "Card payments to confirm, bills due soon or overdue, overspending, payday and money owed to you show up here."));
     list.appendChild(empty);
   }
   homeAlertList.forEach((a) => list.appendChild(alertRow(a, "alert-row", () => { $("#sheet").hidden = true; })));
@@ -2015,6 +2266,7 @@ function renderHomeBudgets(period, rows, f) {
 }
 
 function renderHome(period, rows, prevRows, prev) {
+  homeRows = rows;
   const f = budgetFigures(rows, period);
   renderHero(period, rows, prevRows, prev, f);
   homeAlertList = homeAlerts(period, rows, f);
@@ -2389,6 +2641,9 @@ function wire() {
   $("#home-see-bills").addEventListener("click", () => navTab("bills"));
   $("#home-see-all").addEventListener("click", () => openHistory(null, null, true));
   $("#sheet").addEventListener("click", (e) => { if (e.target.id === "sheet") $("#sheet").hidden = true; });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && sb && $("#screen-home").classList.contains("active")) loadHome();
+  });
 
   // insights
   $("#month-prev").addEventListener("click", () => changeMonth(-1));
@@ -2418,6 +2673,7 @@ function wire() {
     haptic();
     updateReimbPref();
   }));
+  $("#card-setup").addEventListener("click", openCardSetup);
   $("#sign-out").addEventListener("click", signOut);
   $("#acct-supabase").addEventListener("click", () => {
     if (confirm("Disconnect this Supabase project? You'll paste the URL and key again.")) resetConfig();
