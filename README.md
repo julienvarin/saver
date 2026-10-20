@@ -104,7 +104,9 @@ Open the **Settings** tab to set:
 
 - **Salary received** — each salary starts a new budget month, running until the next one
   lands (so a salary on the 3rd gives a 3rd → 2nd month). When it arrives, tap **+** → **Salary**.
-  Before your first salary, budget months are calendar months.
+  Before your first salary, budget months are calendar months. A budget month is named after the
+  month closest to payday: a salary on 26 September starts your **October** budget (tap ⓘ next to
+  the month name for a reminder).
 - **Split** — how your salary divides into Needs / Wants / Save (default 50 / 30 / 20). Each
   bar's line is exactly that share of your salary (plus any **Extra** money in, see below).
 **Bills** live on the Bills tab (**Edit** to change them): recurring payments, subscriptions

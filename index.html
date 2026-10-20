@@ -164,7 +164,7 @@
     <header class="page-head"><h1>Insights</h1></header>
     <div class="month-nav">
       <button id="month-prev" class="icon-btn" type="button" aria-label="Previous month">‹</button>
-      <div class="month-label"><div id="month-label"></div><div id="month-sub" class="month-sub"></div></div>
+      <div class="month-label"><div class="month-name"><span id="month-label"></span><span id="month-info"></span></div><div id="month-sub" class="month-sub"></div></div>
       <button id="month-next" class="icon-btn" type="button" aria-label="Next month">›</button>
     </div>
     <div id="hist-scroll" class="hist-scroll">
@@ -241,9 +241,9 @@
 
   <!-- Notifications -->
   <div id="sheet" class="sheet" hidden>
-    <div class="sheet-card" role="dialog" aria-label="Notifications">
+    <div class="sheet-card" role="dialog" aria-labelledby="sheet-title">
       <div class="sheet-grip"></div>
-      <div class="sheet-title">Notifications</div>
+      <div id="sheet-title" class="sheet-title"></div>
       <div id="sheet-list"></div>
     </div>
   </div>

@@ -541,7 +541,7 @@ body.tabbed .toast { bottom: calc(104px + var(--safe-bottom)); }
   box-shadow: 0 22px 44px -22px rgba(74, 47, 196, .75);
 }
 .hero-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.hero-pill { font-weight: 600; font-size: 15px; line-height: 1; padding: 10px 14px; border-radius: 999px; background: rgba(255, 255, 255, .15); }
+.hero-pill { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; font-size: 15px; line-height: 1; padding: 10px 14px; border-radius: 999px; background: rgba(255, 255, 255, .15); }
 .hero-status { font-size: 13px; font-weight: 700; padding: 7px 12px; border-radius: 999px; background: rgba(110, 231, 183, .2); color: #bbf7d0; white-space: nowrap; }
 .hero-status.warn { background: rgba(253, 224, 71, .2); color: #fef08a; }
 .hero-status.bad { background: rgba(254, 165, 165, .22); color: #fecaca; }
@@ -784,3 +784,14 @@ button.set-row { cursor: pointer; font-weight: 600; }
 .set-row.danger { color: var(--danger); }
 .set-row.muted { color: var(--muted); }
 .edit-empty { color: var(--muted); font-size: 14px; padding: 4px 2px; }
+
+/* ⓘ: how budget months work */
+.month-name { display: inline-flex; align-items: center; gap: 2px; }
+.info-btn {
+  border: none; background: none; color: var(--muted); cursor: pointer; padding: 0; margin: -10px -10px -10px 0;
+  width: 36px; height: 36px; display: inline-grid; place-items: center; border-radius: 50%;
+}
+.info-btn.on-hero { color: rgba(255, 255, 255, .8); margin: -12px -12px -12px -4px; }
+.info-body { padding: 4px 4px 8px; }
+.info-body p { margin: 0 0 12px; font-size: 15px; line-height: 1.45; color: var(--text); }
+.info-body p + p { color: var(--muted); }

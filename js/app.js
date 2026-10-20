@@ -677,7 +677,9 @@ function paydays() {
 
 // The period containing a date: from the latest payday on/before it until the
 // next payday (open-ended while the next salary hasn't arrived — estEnd then
-// guesses a month later). Before the first payday, plain calendar months.
+// guesses a month later). Before the first payday, plain calendar months; the
+// days just before it that already fall in its month join the month before
+// (no 2-day "month" of its own).
 function periodFor(date) {
   const pays = paydays();
   let i = -1;
@@ -688,9 +690,14 @@ function periodFor(date) {
     const est = new Date(start); est.setMonth(est.getMonth() + 1);
     return { start, end, estEnd: end || est, income: pays[i].amount, pay: true };
   }
-  const start = new Date(date.getFullYear(), date.getMonth(), 1);
+  let start = new Date(date.getFullYear(), date.getMonth(), 1);
   let end = new Date(date.getFullYear(), date.getMonth() + 1, 1);
-  if (pays.length && parseDay(pays[0].date) < end) end = parseDay(pays[0].date);
+  if (pays.length) {
+    const first = parseDay(pays[0].date);
+    const named = nearestMonth(first); // the month the first salary starts
+    if (date >= named) start = new Date(named.getFullYear(), named.getMonth() - 1, 1);
+    if (end >= named) end = first;
+  }
   return { start, end, estEnd: end, income: null, pay: false };
 }
 
@@ -712,14 +719,40 @@ function periodLabel(p) {
   return f(p.start) + " – " + (p.end ? f(addDays(p.end, -1)) : "today");
 }
 
-// "October": a payday period is named after the month most of it falls in.
+// The 1st of the month closest to a day: 26 Sep → 1 Oct, 3 Oct → 1 Oct.
+function nearestMonth(d) {
+  const a = new Date(d.getFullYear(), d.getMonth(), 1);
+  const b = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+  return d - a <= b - d ? a : b;
+}
+
+// "October": a payday period is named after the month closest to payday (a
+// salary on 26 Sep starts the October budget); a calendar one after its month.
 function periodMonth(p, short) {
-  if (short) return (p.pay ? addDays(p.start, 14) : p.start).toLocaleDateString(undefined, { month: "short" });
-  if (!p.pay && p.end.getDate() !== 1) return periodLabel(p); // the days before your first salary
-  const mid = p.pay ? addDays(p.start, 14) : p.start;
-  const opts = { month: "long" };
-  if (mid.getFullYear() !== new Date().getFullYear()) opts.year = "numeric";
-  return mid.toLocaleDateString(undefined, opts);
+  const m = p.pay ? nearestMonth(p.start) : p.start;
+  const opts = { month: short ? "short" : "long" };
+  if (!short && m.getFullYear() !== new Date().getFullYear()) opts.year = "numeric";
+  return m.toLocaleDateString(undefined, opts);
+}
+
+// What the ⓘ next to a month name says: how budget months work, with this one's dates.
+function openMonthInfo(p) {
+  haptic();
+  const body = el("div", "info-body");
+  const para = (t) => body.appendChild(el("p", "", t));
+  para(p.pay ? "Your " + periodMonth(p) + " budget runs " + periodLabel(p) + "." : periodMonth(p) + " runs " + periodLabel(p) + ".");
+  para("A budget month starts on payday and is named after the closest month: a salary on 26 September starts your October budget, and everything you spend from then on counts toward October.");
+  para("The trade-off: those last days of September show up in October, not September. Before your first salary, months follow the calendar, and the few days just before it count in the month before.");
+  openSheet("How budget months work", [body]);
+}
+
+function infoBtn(p, cls) {
+  const b = el("button", "info-btn" + (cls ? " " + cls : ""));
+  b.type = "button";
+  b.setAttribute("aria-label", "How budget months work");
+  b.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9.5"/><path d="M12 11v6M12 7.5v.01"/></svg>';
+  b.addEventListener("click", (e) => { e.stopPropagation(); openMonthInfo(p); });
+  return b;
 }
 
 function dayLabel(d) {
@@ -919,7 +952,9 @@ function changeMonth(delta) {
 async function loadHistory(keepScroll) {
   const period = statsPeriod;
   $("#month-label").textContent = periodMonth(period);
-  $("#month-sub").textContent = period.pay ? periodLabel(period) : "";
+  $("#month-sub").textContent = period.pay || period.end.getDate() !== 1 ? periodLabel(period) : "";
+  const info = $("#month-info");
+  info.replaceWith(Object.assign(infoBtn(period), { id: "month-info" }));
   $("#month-next").disabled = isCurrentPeriod(period);
   if (!keepScroll) $("#hist-scroll").scrollTop = 0;
   if (!statsRows.length) $("#hist-list").innerHTML = '<div class="hist-empty">Loading…</div>';
@@ -1720,7 +1755,9 @@ function renderHero(period, rows, prevRows, prev, f) {
   const hero = $("#hero");
   hero.innerHTML = "";
   const top = el("div", "hero-top");
-  top.appendChild(el("span", "hero-pill", f.salary == null ? periodMonth(period) : periodMonth(period) + " budget"));
+  const pill = el("span", "hero-pill", f.salary == null ? periodMonth(period) : periodMonth(period) + " budget");
+  pill.appendChild(infoBtn(period, "on-hero"));
+  top.appendChild(pill);
   hero.appendChild(top);
 
   if (budgetMissing) {
@@ -1871,10 +1908,18 @@ function alertRow(a, cls, onGo) {
   return row;
 }
 
-function openAlerts() {
-  haptic();
+// The bottom sheet: a title and its content.
+function openSheet(title, nodes) {
+  $("#sheet-title").textContent = title;
   const list = $("#sheet-list");
   list.innerHTML = "";
+  nodes.forEach((n) => list.appendChild(n));
+  $("#sheet").hidden = false;
+}
+
+function openAlerts() {
+  haptic();
+  const list = el("div");
   if (!homeAlertList.length) {
     const empty = el("div", "sheet-empty");
     empty.appendChild(el("div", "sheet-empty-ico", "✓"));
@@ -1883,7 +1928,7 @@ function openAlerts() {
     list.appendChild(empty);
   }
   homeAlertList.forEach((a) => list.appendChild(alertRow(a, "alert-row", () => { $("#sheet").hidden = true; })));
-  $("#sheet").hidden = false;
+  openSheet("Notifications", [list]);
   lsAdd(LS.alertsSeen, homeAlertList.map((a) => a.id));
   renderBell();
 }
