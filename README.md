@@ -151,6 +151,23 @@ fixed bills; switch to them with the toggle.
 > merge) — it adds the `budgets` table, and turns old **Debt** entries into
 > **Need**s. It's safe to run on an existing project.
 
+## Apple Pay: log card payments automatically
+
+Every Apple Pay tap can land in Saver on its own: the 🔔 shows **N card payments to confirm**, with the
+title, category and Need / Want guessed from what you logged there before ("LIDL DIENSTLEISTUNG" →
+Lidl · Groceries · Need). One tap on **Need** or **Want** logs it at the time you paid; tap the payment
+itself to change the details first, or **✕** to drop it. A payment that matches one you already typed in
+by hand (same euros, same day) says **Already logged?** so you can dismiss it. Amounts are rounded to
+the euro.
+
+Set it up once in **Settings → Apple Pay → Set up**: it shows the steps and the three values to paste
+into an iPhone **Shortcuts** automation (**Automation → + → Transaction**, Run Immediately, then
+**Get Contents of URL** posting to `log_card_payment`). The token there is your secret: **Make a new
+token** if it leaks.
+
+Only Apple Pay taps come through (iOS gives Shortcuts nothing else): online card payments, direct
+debits and transfers still need logging by hand — your **Bills** cover most of them.
+
 ## Customising
 
 - **Categories:** the chips are the categories you actually use, most used first — one you never
