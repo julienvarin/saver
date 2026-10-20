@@ -26,9 +26,9 @@ const LS = {
   url: "saver.sb_url",
   key: "saver.sb_key",
   cats: "saver.used_cats",
-  billsOpen: "saver.bills_open",
   reimbFull: "saver.reimb_full",
   tipsHidden: "saver.tips_hidden",
+  alertsSeen: "saver.alerts_seen",
 };
 
 // Categories you've used, most used first. Learned from your saved expenses
@@ -123,6 +123,7 @@ const entry = {
   date: "",         // YYYY-MM-DD, defaults to today
   createdAt: null,  // original created_at of the expense being edited
   editId: null, // set when editing an existing expense
+  editRow: null, // the row as it was before editing (Delete's undo puts it back)
   quick: false, // prefilled entry (salary): the amount step saves
   prefilled: false, // amount was prefilled: the first key press replaces it
   catsTouched: false, // categories picked by hand: don't overwrite them from a known title
@@ -142,6 +143,7 @@ function resetEntry() {
   entry.date = toDateInput(new Date());
   entry.createdAt = null;
   entry.editId = null;
+  entry.editRow = null;
   entry.quick = false;
   entry.prefilled = false;
   entry.catsTouched = false;
@@ -165,17 +167,51 @@ function renderAmount() {
   el.classList.toggle("zero", entry.amount === 0);
 }
 
+// What the entry is: an expense (need / want / save), money in or a salary.
+function entryMode() {
+  return entry.kind === "income" ? "income" : entry.kind === "salary" ? "salary" : "expense";
+}
+
+// The top bar: the Expense / Money in / Salary switch on a new entry's amount
+// step, a title otherwise, and Delete while editing.
 function updateProgress(stepId) {
-  const map = {
-    "step-amount": "Amount",
-    "step-details": "Details",
-    "step-saved": "",
-  };
-  let label = map[stepId] || "";
-  const mode = { income: "Money in", salary: "New salary" }[entry.kind] || "";
-  if (mode && label) label = mode + " · " + label;
-  if (entry.editId && label) label = "Edit · " + label;
+  const what = { expense: "expense", income: "money in", salary: "salary" }[entryMode()];
+  let label = "";
+  if (stepId !== "step-saved") {
+    if (entry.editId) label = "Edit " + what;
+    else if (stepId === "step-details") label = entry.kind === "income" ? "Money in" : "New expense";
+  }
   $("#progress").textContent = label;
+  $("#mode").hidden = stepId !== "step-amount" || !!entry.editId;
+  $$("#mode button").forEach((b) => {
+    const on = b.dataset.mode === entryMode();
+    b.classList.toggle("active", on);
+    b.setAttribute("aria-selected", on ? "true" : "false");
+  });
+  $("#entry-delete").hidden = !entry.editId || stepId === "step-saved";
+}
+
+// Switch a new entry between expense, money in and salary. The salary starts
+// from the last one (the first key press replaces it); a typed amount is kept.
+async function setMode(mode) {
+  if (entry.editId || mode === entryMode()) return;
+  if (mode === "salary") {
+    if (!budgetLoaded) await loadBudget();
+    if (budgetMissing) { toast("Re-run supabase/schema.sql first", true); return; }
+  }
+  haptic();
+  if (entry.prefilled) entry.amount = 0;
+  entry.prefilled = false;
+  entry.kind = mode === "expense" ? null : mode;
+  entry.quick = mode === "salary";
+  const pays = paydays();
+  if (mode === "salary" && !entry.amount && pays.length) {
+    entry.amount = Math.round(pays[pays.length - 1].amount);
+    entry.prefilled = true;
+  }
+  renderAmount();
+  updateAmountBtn();
+  updateProgress("step-amount");
 }
 
 /* need/want + flag toggles (reimbursable / received) */
@@ -581,78 +617,47 @@ async function undoInsert(id) {
 
 // Quick salary: the keypad is prefilled with the last salary, Save starts a new month.
 async function saveSalary() {
-  const { data: { user } } = await sb.auth.getUser();
-  if (!user) { showScreen("screen-auth"); return; }
-  // the whole row is written back: start from what's stored now, not from
-  // a copy loaded hours ago (or on another device)
-  if (!(await loadBudget())) { toast("Couldn't load your budget — try again", true); return; }
-  const incomes = Object.assign({}, budget.incomes, { [entry.date]: entry.amount });
-  const next = {
-    user_id: user.id, need_pct: budget.need_pct, want_pct: budget.want_pct, save_pct: budget.save_pct,
-    incomes, bills: budget.bills || [], updated_at: new Date().toISOString(),
-  };
-  const { error } = await sb.from("budgets").upsert(next);
-  if (error) { toast(error.message, true); return; }
-  budget = Object.assign({}, DEFAULT_BUDGET, next);
+  if (!(await saveBudget((b) => ({ incomes: Object.assign({}, b.incomes, { [entry.date]: entry.amount }) })))) return;
   haptic();
   const back = entry.returnTo || "screen-home";
   resetEntry();
   toast("Salary saved · new budget month");
   statsPeriod = periodFor(new Date());
   statsFilter = { type: null, value: null };
-  homePick = null;
   goScreen(back);
 }
 
-async function startSalary() {
-  if (!budgetLoaded) await loadBudget();
-  if (budgetMissing) { toast("Re-run supabase/schema.sql first", true); return; }
+// The entry flow, switched to Salary (from the payday prompts).
+function startSalary() {
+  startAdd();
+  setMode("salary");
+}
+
+// Delete the expense being edited; the toast can put it back.
+async function deleteEntry() {
+  const r = entry.editRow;
+  if (!r) return;
+  const { error } = await sb.from("expenses").delete().eq("id", r.id);
+  if (error) { toast(error.message, true); return; }
   haptic();
-  const back = currentTab();
+  const back = entry.returnTo || "screen-home";
   resetEntry();
-  const pays = paydays();
-  entry.kind = "salary";
-  entry.quick = true;
-  entry.returnTo = back;
-  if (pays.length) { entry.amount = Math.round(pays[pays.length - 1].amount); entry.prefilled = true; }
-  renderAmount();
-  updateAmountBtn();
-  showScreen("screen-entry");
   showStep("step-amount");
+  goScreen(back);
+  toast("Deleted " + (r.title || formatEuro(r.amount)), false, { label: "Undo", fn: async () => {
+    const { error: e2 } = await sb.from("expenses").insert(Object.assign({}, r));
+    if (e2) { toast(e2.message, true); return; }
+    refresh();
+  } });
 }
 
 /* ------------------------------------------------------------------ */
-/*  History / stats                                                    */
+/*  Periods, amounts, entries                                          */
 /* ------------------------------------------------------------------ */
-let statsPeriod = null;                   // shown period, see periodFor()
-let statsRows = [];                        // cached rows for the shown period
-let statsFilter = { type: null, value: null }; // null | 'kind'|'need'/'want'/'saving' | 'category'|name
-
 // Money put aside goes to the savings bucket.
 function isSaving(r) { return r.kind === "save"; }
 // Money in (sub-tenant, side job…): covers bills (comes off needs) or extra (split like the salary).
 function isIncome(r) { return r.kind === "income"; }
-
-function matchesFilter(r) {
-  if (!statsFilter.type) return true;
-  if (statsFilter.type === "kind") return statsFilter.value === "saving" ? isSaving(r) : r.kind === statsFilter.value;
-  if (statsFilter.type === "category") return (r.categories || []).includes(statsFilter.value);
-  if (statsFilter.type === "pending") return pendingReimb(r) > 0;
-  if (statsFilter.type === "income") return isIncome(r);
-  return true;
-}
-
-// Toggle a filter (tapping the active one clears it), then re-render in place.
-function setFilter(type, value) {
-  if (statsFilter.type === type && statsFilter.value === value) {
-    statsFilter = { type: null, value: null };
-  } else {
-    statsFilter = { type, value };
-  }
-  haptic();
-  renderStats(statsRows);
-  renderList(statsRows);
-}
 
 /* ---- periods: a budget month runs from one payday to the next ---- */
 const DAY = 86400000;
@@ -672,7 +677,9 @@ function paydays() {
 
 // The period containing a date: from the latest payday on/before it until the
 // next payday (open-ended while the next salary hasn't arrived — estEnd then
-// guesses a month later). Before the first payday, plain calendar months.
+// guesses a month later). Before the first payday, plain calendar months; the
+// days just before it that already fall in its month join the month before
+// (no 2-day "month" of its own).
 function periodFor(date) {
   const pays = paydays();
   let i = -1;
@@ -683,9 +690,14 @@ function periodFor(date) {
     const est = new Date(start); est.setMonth(est.getMonth() + 1);
     return { start, end, estEnd: end || est, income: pays[i].amount, pay: true };
   }
-  const start = new Date(date.getFullYear(), date.getMonth(), 1);
+  let start = new Date(date.getFullYear(), date.getMonth(), 1);
   let end = new Date(date.getFullYear(), date.getMonth() + 1, 1);
-  if (pays.length && parseDay(pays[0].date) < end) end = parseDay(pays[0].date);
+  if (pays.length) {
+    const first = parseDay(pays[0].date);
+    const named = nearestMonth(first); // the month the first salary starts
+    if (date >= named) start = new Date(named.getFullYear(), named.getMonth() - 1, 1);
+    if (end >= named) end = first;
+  }
   return { start, end, estEnd: end, income: null, pay: false };
 }
 
@@ -707,6 +719,42 @@ function periodLabel(p) {
   return f(p.start) + " – " + (p.end ? f(addDays(p.end, -1)) : "today");
 }
 
+// The 1st of the month closest to a day: 26 Sep → 1 Oct, 3 Oct → 1 Oct.
+function nearestMonth(d) {
+  const a = new Date(d.getFullYear(), d.getMonth(), 1);
+  const b = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+  return d - a <= b - d ? a : b;
+}
+
+// "October": a payday period is named after the month closest to payday (a
+// salary on 26 Sep starts the October budget); a calendar one after its month.
+function periodMonth(p, short) {
+  const m = p.pay ? nearestMonth(p.start) : p.start;
+  const opts = { month: short ? "short" : "long" };
+  if (!short && m.getFullYear() !== new Date().getFullYear()) opts.year = "numeric";
+  return m.toLocaleDateString(undefined, opts);
+}
+
+// What the ⓘ next to a month name says: how budget months work, with this one's dates.
+function openMonthInfo(p) {
+  haptic();
+  const body = el("div", "info-body");
+  const para = (t) => body.appendChild(el("p", "", t));
+  para(p.pay ? "Your " + periodMonth(p) + " budget runs " + periodLabel(p) + "." : periodMonth(p) + " runs " + periodLabel(p) + ".");
+  para("A budget month starts on payday and is named after the closest month: a salary on 26 September starts your October budget, and everything you spend from then on counts toward October.");
+  para("The trade-off: those last days of September show up in October, not September. Before your first salary, months follow the calendar, and the few days just before it count in the month before.");
+  openSheet("How budget months work", [body]);
+}
+
+function infoBtn(p, cls) {
+  const b = el("button", "info-btn" + (cls ? " " + cls : ""));
+  b.type = "button";
+  b.setAttribute("aria-label", "How budget months work");
+  b.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9.5"/><path d="M12 11v6M12 7.5v.01"/></svg>';
+  b.addEventListener("click", (e) => { e.stopPropagation(); openMonthInfo(p); });
+  return b;
+}
+
 function dayLabel(d) {
   const now = new Date();
   const isSame = (a, b) => a.toDateString() === b.toDateString();
@@ -714,23 +762,6 @@ function dayLabel(d) {
   if (isSame(d, now)) return "Today";
   if (isSame(d, yest)) return "Yesterday";
   return d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
-}
-
-// filter / period: optional, e.g. from Home ("See all" on a budget opens it filtered).
-async function openHistory(filter, period) {
-  if (!budgetLoaded) await loadBudget();
-  statsPeriod = period || periodFor(new Date());
-  statsFilter = filter || { type: null, value: null };
-  showScreen("screen-history");
-  loadHistory();
-}
-
-function changeMonth(delta) {
-  if (delta > 0 && isCurrentPeriod(statsPeriod)) return; // don't go past the current period
-  statsPeriod = periodFor(delta > 0 ? statsPeriod.end : addDays(statsPeriod.start, -1));
-  statsFilter = { type: null, value: null };
-  haptic();
-  loadHistory();
 }
 
 // What you paid out of pocket.
@@ -747,7 +778,7 @@ function isPartialReimb(r) {
   return !!r.reimbursable && r.reimb_amount != null && Number(r.reimb_amount) < (Number(r.amount) || 0);
 }
 // What counts toward your spend: reimbursed money isn't really yours.
-// The Stats card can switch to counting reimbursable expenses in full.
+// Settings can switch to counting reimbursable expenses in full.
 function netAmount(r) {
   return r.reimbursable && !reimbFull ? Math.max(0, paidAmount(r) - reimbAmount(r)) : paidAmount(r);
 }
@@ -762,6 +793,7 @@ function openEdit(r) {
   resetEntry();
   entry.returnTo = back;
   entry.editId = r.id;
+  entry.editRow = r;
   entry.amount = Math.round(Number(r.amount) || 0);
   entry.title = r.title || "";
   entry.kind = r.kind || null;
@@ -780,27 +812,7 @@ function openEdit(r) {
   showStep("step-amount");
 }
 
-async function loadHistory() {
-  $("#month-label").textContent = periodLabel(statsPeriod);
-  $("#month-next").disabled = isCurrentPeriod(statsPeriod);
-  $("#hist-scroll").scrollTop = 0;
-
-  const list = $("#hist-list");
-  list.innerHTML = '<div class="hist-empty">Loading…</div>';
-
-  const period = statsPeriod;
-  const { data, error } = await fetchRows(period);
-  if (period !== statsPeriod) return; // another month was picked meanwhile
-
-  if (error) { list.innerHTML = '<div class="hist-empty">Error loading.</div>'; toast(error.message, true); return; }
-
-  statsRows = data;
-  renderStats(statsRows);
-  renderList(statsRows);
-  renderBudget(statsRows);
-}
-
-// Every entry of a period, newest first.
+// Every entry of a period (or any { start, end } span), newest first.
 async function fetchRows(p) {
   let q = sb.from("expenses").select("*").gte("created_at", p.start.toISOString());
   if (p.end) q = q.lt("created_at", p.end.toISOString());
@@ -821,110 +833,11 @@ function refresh() {
 
 // Back to a tab screen after an entry: Insights keeps the month it showed.
 function goScreen(id) {
-  if (id === "screen-history" && statsPeriod) { showScreen(id); loadHistory(); }
+  if (id === "screen-history" && statsPeriod) { showScreen(id); loadHistory(true); }
   else if (id === "screen-history") openHistory();
   else if (id === "screen-bills") openBills();
-  else openHome(true);
-}
-
-function renderStats(rows) {
-  const filtered = rows.filter(matchesFilter);
-  const kindFilter = statsFilter.type === "kind";
-  const catFilter = statsFilter.type === "category";
-
-  // headline total + per-day, over the filtered set. Unfiltered, the total is
-  // what you spent: money put aside / repaid isn't spending.
-  let total = 0, need = 0, want = 0, saved = 0, pending = 0;
-  const pendingView = statsFilter.type === "pending";
-  filtered.forEach((r) => {
-    if (isIncome(r)) { if (statsFilter.type === "income") total += Number(r.amount) || 0; return; }
-    if (pendingView) total += pendingReimb(r); // what's still owed back
-    else if (statsFilter.type || !isSaving(r)) total += netAmount(r);
-    if (r.kind === "need") need += netAmount(r);
-    else if (r.kind === "want") want += netAmount(r);
-    else if (isSaving(r)) saved += netAmount(r);
-  });
-  rows.forEach((r) => { pending += pendingReimb(r); }); // pending ignores filter
-
-  const perDay = total / daysElapsed(statsPeriod);
-  $("#stat-total").textContent = formatEuro(total);
-  $("#stat-perday").textContent = formatEuro(perDay) + " / day";
-
-  // label + clear affordance reflect the active filter
-  const label = !statsFilter.type ? "Total spent"
-    : statsFilter.type === "kind" ? ({ need: "Needs", want: "Wants", saving: "Saved" }[statsFilter.value])
-    : statsFilter.type === "pending" ? "Waiting to get back"
-    : statsFilter.type === "income" ? "Money in"
-    : statsFilter.value;
-  $("#stat-label").textContent = label;
-  $("#stat-clear").hidden = !statsFilter.type;
-
-  // pending reimbursement line (money still to get back) — not filtered
-  const pw = $("#reimb-pending");
-  pw.classList.toggle("active", statsFilter.type === "pending");
-  if (pending > 0) {
-    pw.hidden = false;
-    $("#reimb-pending-amt").textContent = formatEuro(pending);
-  } else {
-    pw.hidden = true;
-  }
-
-  // needs / wants / saved — reflects the filtered set; clickable to filter by kind
-  const nwTotal = need + want + saved;
-  const parts = { need, want, save: saved };
-  const filterKey = { need: "need", want: "want", save: "saving" };
-  let pctLeft = 100;
-  ["need", "want", "save"].forEach((k, i) => {
-    const pct = !nwTotal ? 0 : i === 2 ? pctLeft : Math.round((parts[k] / nwTotal) * 100);
-    pctLeft -= pct;
-    $("#nw-" + k).style.width = (nwTotal ? (parts[k] / nwTotal) * 100 : 0) + "%";
-    $("#nw-" + k + "-amt").textContent = formatEuro(parts[k]);
-    $("#nw-" + k + "-pct").textContent = nwTotal ? pct + "%" : "";
-    const item = $("#nw-" + k + "-item");
-    item.classList.toggle("active", kindFilter && statsFilter.value === filterKey[k]);
-    item.classList.toggle("dim", kindFilter && statsFilter.value !== filterKey[k]);
-  });
-  $$(".b-in").forEach((b) => b.classList.toggle("active", statsFilter.type === "income"));
-  // the budget buckets filter too
-  $$(".b-bucket[data-filter]").forEach((b) => {
-    b.classList.toggle("active", kindFilter && statsFilter.value === b.dataset.filter);
-    b.classList.toggle("dim", kindFilter && statsFilter.value !== b.dataset.filter);
-  });
-
-  // category breakdown — scoped by an active kind filter, but not by a
-  // category filter (so you can still switch between categories).
-  // Unfiltered, it shows wants: needs are mostly fixed bills that dwarf
-  // everything else, and wants are where money can be saved.
-  const catScope = kindFilter ? rows.filter(matchesFilter) : rows.filter((r) => r.kind === "want");
-  const byCat = {};
-  catScope.forEach((r) => {
-    const a = netAmount(r);
-    if (a <= 0) return;
-    const cats = (r.categories && r.categories.length) ? r.categories : ["Uncategorised"];
-    cats.forEach((c) => { byCat[c] = (byCat[c] || 0) + a; });
-  });
-
-  const wrap = $("#cat-breakdown");
-  wrap.innerHTML = "";
-  const cats = Object.keys(byCat).sort((a, b) => byCat[b] - byCat[a]);
-  if (cats.length) {
-    const head = document.createElement("div");
-    head.className = "section-label";
-    head.textContent = ({ need: "Needs", saving: "Saved" }[kindFilter && statsFilter.value] || "Wants") + " by category";
-    wrap.appendChild(head);
-    const max = byCat[cats[0]] || 1;
-    cats.forEach((c) => {
-      const row = document.createElement("div");
-      row.className = "cat-row";
-      if (catFilter && statsFilter.value === c) row.classList.add("active");
-      else if (catFilter) row.classList.add("dim");
-      row.innerHTML =
-        '<div class="cat-row-top"><span>' + escapeHtml(c) + "</span><b>" + formatEuro(byCat[c]) + "</b></div>" +
-        '<div class="cat-track"><div class="cat-fill" style="width:' + ((byCat[c] / max) * 100) + '%"></div></div>';
-      row.addEventListener("click", () => setFilter("category", c));
-      wrap.appendChild(row);
-    });
-  }
+  else if (id === "screen-budget") openBudgetSettings();
+  else openHome();
 }
 
 function escapeHtml(s) {
@@ -939,59 +852,22 @@ function makeBadge(text, cls) {
   return b;
 }
 
-function renderList(rows) {
-  const list = $("#hist-list");
-  list.innerHTML = "";
-  const shown = rows.filter(matchesFilter);
-  if (!shown.length) { list.innerHTML = '<div class="hist-empty">No expenses here.</div>'; return; }
-
-  const sub = document.createElement("div");
-  sub.className = "hist-sub";
-  const noun = statsFilter.type === "income" ? " entr" + (shown.length > 1 ? "ies" : "y") : " expense" + (shown.length > 1 ? "s" : "");
-  sub.textContent = statsFilter.type ? shown.length + noun : "All entries";
-  list.appendChild(sub);
-
-  let lastDay = null;
-  shown.forEach((r) => {
-    const d = new Date(r.created_at);
-    const key = d.toDateString();
-    if (key !== lastDay) {
-      lastDay = key;
-      const h = document.createElement("div");
-      h.className = "hist-day";
-      h.textContent = dayLabel(d);
-      list.appendChild(h);
-    }
-    list.appendChild(renderItem(r));
-  });
-}
-
+// One entry: tap it to edit (and delete from there).
 function renderItem(r) {
-  const el = document.createElement("div");
-  el.className = "hist-item";
+  const row = el("button", "hist-item");
+  row.type = "button";
+  row.appendChild(el("span", "hi-kind " + (r.kind || "")));
 
-  const dot = document.createElement("span");
-  dot.className = "hi-kind " + (r.kind || "");
-  el.appendChild(dot);
-
-  // main area: tap to edit
-  const main = document.createElement("div");
-  main.className = "hi-main";
-  const title = document.createElement("div");
-  title.className = "hi-title";
-  title.textContent = r.title || "Untitled";
-
-  const sub = document.createElement("div");
-  sub.className = "hi-sub";
+  const main = el("div", "hi-main");
+  main.appendChild(el("div", "hi-title", r.title || "Untitled"));
+  const sub = el("div", "hi-sub");
   if (r.reimbursable) {
     const part = isPartialReimb(r) ? " " + formatEuro(reimbAmount(r)) : "";
     if (r.reimbursed) sub.appendChild(makeBadge("↩︎" + part + " back", "reimb-done"));
     else {
       // tap the badge once the money is back
-      const got = document.createElement("button");
-      got.className = "badge reimb-pending";
-      got.type = "button";
-      got.textContent = "↩︎" + part + " pending · got it?";
+      const got = el("span", "badge reimb-pending", "↩︎" + part + " owed · got it?");
+      got.setAttribute("role", "button");
       got.addEventListener("click", async (e) => {
         e.stopPropagation();
         const { error } = await sb.from("expenses").update({ reimbursed: true }).eq("id", r.id);
@@ -1006,52 +882,471 @@ function renderItem(r) {
       sub.appendChild(got);
     }
   }
-  const catSpan = document.createElement("span");
-  catSpan.className = "cats";
-  catSpan.textContent = isIncome(r) ? (isExtra(r) ? "Money in · Extra" : "Money in · Bills") : (r.categories || []).join(" · ") || "—";
-  sub.appendChild(catSpan);
-
-  main.appendChild(title);
+  sub.appendChild(el("span", "cats", isIncome(r) ? (isExtra(r) ? "Money in · Extra" : "Money in · Covers bills") : (r.categories || []).join(" · ") || "—"));
   main.appendChild(sub);
-  main.addEventListener("click", () => openEdit(r));
-  el.appendChild(main);
+  row.appendChild(main);
+  row.addEventListener("click", () => openEdit(r));
 
-  const amt = document.createElement("div");
   if (isIncome(r)) {
-    amt.className = "hi-amount income";
-    amt.textContent = "+" + formatEuro(r.amount);
-    el.appendChild(amt);
-    el.appendChild(deleteBtn(r));
-    return el;
+    row.appendChild(el("div", "hi-amount income", "+" + formatEuro(r.amount)));
+    return row;
   }
   // fully reimbursed: struck-through paid amount; partial: what's left on you
   const fullReimb = r.reimbursable && netAmount(r) === 0;
-  amt.className = "hi-amount" + (fullReimb ? " reimb" : "");
-  amt.textContent = formatEuro(r.reimbursable && !fullReimb ? netAmount(r) : paidAmount(r));
-  el.appendChild(amt);
-
-  el.appendChild(deleteBtn(r));
-  return el;
+  row.appendChild(el("div", "hi-amount" + (fullReimb ? " reimb" : ""),
+    formatEuro(r.reimbursable && !fullReimb ? netAmount(r) : paidAmount(r))));
+  return row;
 }
 
-function deleteBtn(r) {
-  const del = document.createElement("button");
-  del.className = "hi-act del";
-  del.textContent = "🗑";
-  del.setAttribute("aria-label", "Delete");
-  del.addEventListener("click", async (e) => {
-    e.stopPropagation();
-    const { error } = await sb.from("expenses").delete().eq("id", r.id);
-    if (error) { toast(error.message, true); return; }
-    haptic();
-    toast("Deleted " + (r.title || formatEuro(r.amount)), false, { label: "Undo", fn: async () => {
-      const { error: e2 } = await sb.from("expenses").insert(Object.assign({}, r));
-      if (e2) { toast(e2.message, true); return; }
-      refresh();
-    } });
-    refresh();
+/* ------------------------------------------------------------------ */
+/*  Insights                                                           */
+/* ------------------------------------------------------------------ */
+let statsPeriod = null;                        // shown period, see periodFor()
+let statsRows = [];                            // its rows
+let statsHistory = [];                         // [{ period, rows }]: the shown period, then the 5 before it
+let statsFilter = { type: null, value: null }; // transactions filter: kind | category | pending | income
+let catKind = "want";                          // categories card: wants or needs
+
+const KIND_FILTER = { need: "need", want: "want", save: "saving" };
+const KIND_LABEL = { need: "Needs", want: "Wants", saving: "Saved" };
+
+function matchesFilter(r) {
+  if (!statsFilter.type) return true;
+  if (statsFilter.type === "kind") return statsFilter.value === "saving" ? isSaving(r) : r.kind === statsFilter.value;
+  if (statsFilter.type === "category") return !isIncome(r) && (r.categories || []).includes(statsFilter.value);
+  if (statsFilter.type === "pending") return pendingReimb(r) > 0;
+  if (statsFilter.type === "income") return isIncome(r);
+  return true;
+}
+
+// Toggle a transactions filter (tapping the active one clears it). From a
+// card higher up, scroll down to the list it filters.
+function setFilter(type, value, scroll) {
+  const same = statsFilter.type === type && statsFilter.value === value;
+  statsFilter = same || !type ? { type: null, value: null } : { type, value };
+  haptic();
+  renderInsights();
+  if (scroll && !same) $("#tx-anchor").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+// filter / period: optional, e.g. from Home (a budget opens its transactions).
+// toTx: scroll straight to the transactions.
+async function openHistory(filter, period, toTx) {
+  if (!budgetLoaded) await loadBudget();
+  statsPeriod = period || periodFor(new Date());
+  statsFilter = filter || { type: null, value: null };
+  showScreen("screen-history");
+  await loadHistory();
+  if (toTx) $("#tx-anchor").scrollIntoView({ block: "start" });
+}
+
+function changeMonth(delta) {
+  if (delta > 0 && isCurrentPeriod(statsPeriod)) return; // don't go past the current period
+  statsPeriod = periodFor(delta > 0 ? statsPeriod.end : addDays(statsPeriod.start, -1));
+  statsFilter = { type: null, value: null };
+  haptic();
+  loadHistory();
+}
+
+// keepScroll: reloading in place (after an edit), not a new month.
+async function loadHistory(keepScroll) {
+  const period = statsPeriod;
+  $("#month-label").textContent = periodMonth(period);
+  $("#month-sub").textContent = period.pay || period.end.getDate() !== 1 ? periodLabel(period) : "";
+  const info = $("#month-info");
+  info.replaceWith(Object.assign(infoBtn(period), { id: "month-info" }));
+  $("#month-next").disabled = isCurrentPeriod(period);
+  if (!keepScroll) $("#hist-scroll").scrollTop = 0;
+  if (!statsRows.length) $("#hist-list").innerHTML = '<div class="hist-empty">Loading…</div>';
+
+  // the shown period and the five before it, in one query
+  const periods = [period];
+  for (let i = 0; i < 5; i++) periods.push(periodFor(addDays(periods[i].start, -1)));
+  const { data, error } = await fetchRows({ start: periods[5].start, end: period.end });
+  if (period !== statsPeriod) return; // another month was picked meanwhile
+  if (error) { $("#hist-list").innerHTML = '<div class="hist-empty">Couldn\'t load this month.</div>'; toast(error.message, true); return; }
+
+  statsHistory = periods.map((p) => ({ period: p, rows: data.filter((r) => {
+    const d = new Date(r.created_at);
+    return d >= p.start && (!p.end || d < p.end);
+  }) }));
+  statsRows = statsHistory[0].rows;
+  renderInsights();
+}
+
+function renderInsights() {
+  const f = budgetFigures(statsRows, statsPeriod);
+  renderInsSummary(f);
+  renderPace(f);
+  renderSplit(f);
+  renderCats();
+  renderTrend();
+  renderTxFilters();
+  renderList(statsRows);
+}
+
+// A small labelled figure; with fn it's a button.
+function statTile(cls, label, value, valCls, fn) {
+  const t = el(fn ? "button" : "div", cls);
+  if (fn) { t.type = "button"; t.addEventListener("click", fn); }
+  t.appendChild(el("div", "ht-label", label));
+  t.appendChild(el("div", "ht-val" + (valCls ? " " + valCls : ""), value));
+  return t;
+}
+
+// Spent so far against the same number of days last period: [text, class].
+function compareValue(rows, prevRows, prev, f) {
+  if (!prevRows || !prevRows.length) return ["—", ""];
+  const until = f.current ? addDays(prev.start, f.today) : null;
+  const diff = spendOf(rows) - spendOf(prevRows, until);
+  if (Math.abs(diff) < 1) return ["Same", ""];
+  return [(diff < 0 ? "↓ " : "↑ ") + euro0(Math.abs(diff)), diff < 0 ? "good" : "bad"];
+}
+
+function insCard(title, sub) {
+  const card = el("div", "bcard ins-card");
+  if (title) {
+    const head = el("div", "ins-head");
+    head.appendChild(el("div", "ins-title", title));
+    if (sub) head.appendChild(el("div", "ins-desc", sub));
+    card.appendChild(head);
+  }
+  return card;
+}
+
+// Headline: what you spent (your share of needs + wants), per day, and how it compares.
+function renderInsSummary(f) {
+  const wrap = $("#ins-summary");
+  wrap.innerHTML = "";
+  const period = statsPeriod;
+  const spent = f.needMine + f.wantSpent;
+  const card = insCard();
+  card.classList.add("ins-sum");
+  card.appendChild(el("div", "ins-label", f.current ? "Spent so far" : "Spent"));
+  const big = el("div", "ins-big");
+  big.appendChild(bigEuro(spent));
+  card.appendChild(big);
+  let sub = euro0(spent / daysElapsed(period)) + " a day";
+  let subCls = "";
+  if (f.current) sub += " · day " + Math.min(f.today, f.dim) + " of " + f.dim;
+  else if (f.salary != null) {
+    const left = f.needBudget + f.wantBudget - spent;
+    sub += " · " + (left >= 0 ? euro0(left) + " under budget" : euro0(-left) + " over budget");
+    subCls = left >= 0 ? " good" : " bad";
+  }
+  card.appendChild(el("div", "ins-sub" + subCls, sub));
+
+  const prev = statsHistory[1];
+  const [cmp, cmpCls] = compareValue(statsRows, prev.rows, prev.period, f);
+  const tiles = el("div", "ins-tiles");
+  tiles.appendChild(statTile("ins-tile", "vs. last month", cmp, cmpCls));
+  const income = (f.salary || 0) + f.extra;
+  tiles.appendChild(statTile("ins-tile", "Money in", euro0(income), "",
+    f.extra ? () => setFilter("income", true, true) : null));
+  tiles.appendChild(statTile("ins-tile", "Saved", euro0(f.saved), f.salary != null && f.saved >= f.saveTarget && f.saved > 0 ? "good" : "",
+    f.saved ? () => setFilter("kind", "saving", true) : null));
+  card.appendChild(tiles);
+  wrap.appendChild(card);
+}
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+function svgEl(tag, attrs, text) {
+  const e = document.createElementNS(SVG_NS, tag);
+  Object.keys(attrs || {}).forEach((k) => e.setAttribute(k, attrs[k]));
+  if (text != null) e.textContent = text;
+  return e;
+}
+
+// A round axis maximum whose half is round too: 1, 2, 3, 4, 6 or 8 × a power of ten.
+function niceMax(v) {
+  if (v <= 0) return 10;
+  const p = Math.pow(10, Math.floor(Math.log10(v)));
+  return [1, 2, 3, 4, 6, 8, 10].map((m) => m * p).find((m) => m >= v);
+}
+
+function compactEuro(n) {
+  return n >= 1000 ? "€" + (Math.round(n / 100) / 10) + "K" : "€" + Math.round(n);
+}
+
+// Spending pace: cumulative needs + wants by day, against last month and the budget.
+function renderPace(f) {
+  const wrap = $("#ins-pace");
+  wrap.innerHTML = "";
+  const period = statsPeriod;
+  const prev = statsHistory[1];
+  const days = Math.max(1, daysBetween(period.start, period.estEnd));
+  const shown = f.current ? Math.min(f.today, days) : days;
+  const cumul = (rows, start, n) => {
+    const out = [];
+    for (let i = 1; i <= n; i++) out.push(spendOf(rows, addDays(start, i)));
+    return out;
+  };
+  const cur = cumul(statsRows, period.start, shown);
+  const prevDays = Math.min(days, Math.max(1, daysBetween(prev.period.start, prev.period.end)));
+  const old = prev.rows.length ? cumul(prev.rows, prev.period.start, prevDays) : null;
+  if (!cur[cur.length - 1] && !old) return;
+
+  const line = f.salary != null ? f.needBudget + f.wantBudget : null;
+  const yMax = niceMax(Math.max(cur[cur.length - 1], old ? Math.max.apply(null, old) : 0, line || 0) * 1.05);
+
+  const card = insCard("Spending pace", "Needs + wants, day by day");
+  const legend = el("div", "legend");
+  const key = (cls, label) => { const k = el("span", "lg-item"); k.appendChild(el("span", "lg-line " + cls)); k.appendChild(document.createTextNode(label)); legend.appendChild(k); };
+  key("cur", "This month");
+  if (old) key("old", "Last month");
+  if (line) key("budget", "Budget");
+  card.appendChild(legend);
+
+  const W = 340, H = 168, L = 40, R = 10, T = 10, B = 24;
+  const pw = W - L - R, ph = H - T - B;
+  const x = (i) => L + (days > 1 ? (i / (days - 1)) * pw : pw / 2);
+  const y = (v) => T + ph - (v / yMax) * ph;
+  const svg = svgEl("svg", { viewBox: "0 0 " + W + " " + H, class: "chart", role: "img",
+    "aria-label": "Spent " + euro0(cur[cur.length - 1]) + " by day " + shown + (old ? ", last month " + euro0(old[Math.min(shown, old.length) - 1]) + " by the same day" : "") });
+  [0, yMax / 2, yMax].forEach((v) => {
+    svg.appendChild(svgEl("line", { x1: L, x2: W - R, y1: y(v), y2: y(v), class: "grid" }));
+    svg.appendChild(svgEl("text", { x: L - 6, y: y(v) + 4, class: "tick", "text-anchor": "end" }, compactEuro(v)));
   });
-  return del;
+  const fmt = (d) => d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  svg.appendChild(svgEl("text", { x: L, y: H - 6, class: "tick" }, fmt(period.start)));
+  svg.appendChild(svgEl("text", { x: W - R, y: H - 6, class: "tick", "text-anchor": "end" }, fmt(addDays(period.start, days - 1))));
+  if (line) svg.appendChild(svgEl("line", { x1: L, x2: W - R, y1: y(line), y2: y(line), class: "ref" }));
+  const path = (vals) => vals.map((v, i) => (i ? "L" : "M") + x(i).toFixed(1) + " " + y(v).toFixed(1)).join(" ");
+  if (old) svg.appendChild(svgEl("path", { d: path(old), class: "ln old" }));
+  svg.appendChild(svgEl("path", { d: path(cur) + " L" + x(cur.length - 1).toFixed(1) + " " + y(0) + " L" + x(0) + " " + y(0) + " Z", class: "area" }));
+  svg.appendChild(svgEl("path", { d: path(cur), class: "ln cur" }));
+  const end = cur.length - 1;
+  svg.appendChild(svgEl("circle", { cx: x(end), cy: y(cur[end]), r: 4.5, class: "end-dot" }));
+
+  // hover / drag: a crosshair and the values of that day
+  const cross = svgEl("line", { y1: T, y2: T + ph, class: "cross", visibility: "hidden" });
+  const dotCur = svgEl("circle", { r: 4.5, class: "end-dot", visibility: "hidden" });
+  const dotOld = svgEl("circle", { r: 4.5, class: "old-dot", visibility: "hidden" });
+  svg.appendChild(cross); svg.appendChild(dotOld); svg.appendChild(dotCur);
+  const hit = svgEl("rect", { x: L, y: T, width: pw, height: ph, class: "hit" });
+  svg.appendChild(hit);
+  const box = el("div", "chart-box");
+  box.appendChild(svg);
+  const tip = el("div", "chart-tip");
+  tip.hidden = true;
+  box.appendChild(tip);
+  const show = (e) => {
+    const r = svg.getBoundingClientRect();
+    const px = ((e.clientX - r.left) / r.width) * W;
+    const i = Math.max(0, Math.min(days - 1, Math.round(((px - L) / pw) * (days - 1))));
+    cross.setAttribute("x1", x(i)); cross.setAttribute("x2", x(i)); cross.setAttribute("visibility", "visible");
+    const place = (dot, v) => { if (v == null) { dot.setAttribute("visibility", "hidden"); return; } dot.setAttribute("cx", x(i)); dot.setAttribute("cy", y(v)); dot.setAttribute("visibility", "visible"); };
+    place(dotCur, cur[i]);
+    place(dotOld, old ? old[i] : null);
+    tip.innerHTML = "";
+    tip.appendChild(el("div", "tt-head", fmt(addDays(period.start, i))));
+    const tline = (cls, label, v) => { const l = el("div", "tt-row"); l.appendChild(el("span", "lg-line " + cls)); l.appendChild(el("span", "", label)); l.appendChild(el("b", "", euro0(v))); tip.appendChild(l); };
+    if (cur[i] != null) tline("cur", "This month", cur[i]);
+    if (old && old[i] != null) tline("old", "Last month", old[i]);
+    tip.hidden = false;
+    const left = (x(i) / W) * r.width;
+    tip.style.left = Math.max(0, Math.min(r.width - tip.offsetWidth, left - tip.offsetWidth / 2)) + "px";
+  };
+  const hide = () => { tip.hidden = true; [cross, dotCur, dotOld].forEach((n) => n.setAttribute("visibility", "hidden")); };
+  hit.addEventListener("pointermove", show);
+  hit.addEventListener("pointerdown", show);
+  hit.addEventListener("pointerleave", hide);
+  card.appendChild(box);
+
+  // the one sentence the chart is about
+  const i = cur.length - 1;
+  if (old && old[Math.min(i, old.length - 1)] != null) {
+    const diff = cur[i] - old[Math.min(i, old.length - 1)];
+    card.appendChild(el("div", "ins-note", Math.abs(diff) < 1 ? "Same as last month by this day."
+      : euro0(Math.abs(diff)) + (diff < 0 ? " less" : " more") + " than last month by " + (f.current ? "this day" : "the end") + "."));
+  }
+  wrap.appendChild(card);
+}
+
+// Where it went: needs / wants / saved, as a share of income against the plan.
+function renderSplit(f) {
+  const wrap = $("#ins-split");
+  wrap.innerHTML = "";
+  const parts = [["need", "Needs", f.needMine, budget.need_pct], ["want", "Wants", f.wantSpent, budget.want_pct], ["save", "Saved", f.saved, budget.save_pct]];
+  const total = parts.reduce((s, p) => s + p[2], 0);
+  if (!total) return;
+  const base = f.salary != null ? f.salary + f.bonus : null;
+  const card = insCard("Where it went", base ? "Share of your income, against your plan" : "Share of what went out");
+  const stack = el("div", "stack-bar");
+  parts.forEach(([k, , v]) => {
+    if (v <= 0) return;
+    const seg = el("div", "stack-seg " + k);
+    seg.style.flexGrow = String(v);
+    stack.appendChild(seg);
+  });
+  card.appendChild(stack);
+  parts.forEach(([k, label, v, plan]) => {
+    const filter = KIND_FILTER[k];
+    const kindOn = statsFilter.type === "kind";
+    const row = el("button", "split-row" + (kindOn && statsFilter.value === filter ? " active" : kindOn ? " dim" : ""));
+    row.type = "button";
+    row.addEventListener("click", () => setFilter("kind", filter, true));
+    const name = el("span", "split-name");
+    name.appendChild(el("span", "dot " + k));
+    name.appendChild(document.createTextNode(label));
+    row.appendChild(name);
+    const pct = Math.round((v / (base || total)) * 100);
+    let note = pct + "%";
+    let cls = "";
+    if (base) {
+      note += " · plan " + Math.round(plan) + "%";
+      cls = k === "save" ? (pct >= plan ? "good" : "") : (pct > plan ? "bad" : "");
+    }
+    row.appendChild(el("span", "split-pct " + cls, note));
+    row.appendChild(el("b", "split-amt", euro0(v)));
+    card.appendChild(row);
+  });
+  wrap.appendChild(card);
+}
+
+// By category, wants or needs, with the change since last month.
+function renderCats() {
+  const wrap = $("#ins-cats");
+  wrap.innerHTML = "";
+  const sum = (rows) => {
+    const by = {};
+    rows.forEach((r) => {
+      if (r.kind !== catKind) return;
+      const a = netAmount(r);
+      if (a <= 0) return;
+      ((r.categories && r.categories.length) ? r.categories : ["Uncategorised"]).forEach((c) => { by[c] = (by[c] || 0) + a; });
+    });
+    return by;
+  };
+  const now = sum(statsRows);
+  const before = sum(statsHistory[1].rows);
+  const card = insCard("By category");
+  const seg = el("div", "seg small");
+  [["want", "Wants"], ["need", "Needs"]].forEach(([k, label]) => {
+    const b = el("button", k === catKind ? "active" : "", label);
+    b.type = "button";
+    b.addEventListener("click", () => { if (catKind === k) return; catKind = k; haptic(); renderCats(); });
+    seg.appendChild(b);
+  });
+  card.querySelector(".ins-head").appendChild(seg);
+  const cats = Object.keys(now).sort((a, b) => now[b] - now[a]);
+  if (!cats.length) {
+    card.appendChild(el("div", "ins-empty", "No " + (catKind === "want" ? "wants" : "needs") + " logged this month."));
+    wrap.appendChild(card);
+    return;
+  }
+  const max = now[cats[0]];
+  const catOn = statsFilter.type === "category";
+  cats.forEach((c) => {
+    const row = el("button", "cat-row" + (catOn && statsFilter.value === c ? " active" : catOn ? " dim" : ""));
+    row.type = "button";
+    row.addEventListener("click", () => setFilter("category", c, true));
+    const top = el("div", "cat-row-top");
+    top.appendChild(el("span", "cat-name", c));
+    const diff = now[c] - (before[c] || 0);
+    if (!before[c]) top.appendChild(el("span", "cat-delta", "new"));
+    else if (Math.abs(diff) >= 1) top.appendChild(el("span", "cat-delta " + (diff > 0 ? "bad" : "good"), (diff > 0 ? "↑ " : "↓ ") + euro0(Math.abs(diff))));
+    top.appendChild(el("b", "", euro0(now[c])));
+    row.appendChild(top);
+    const track = el("div", "cat-track");
+    const fill = el("div", "cat-fill " + catKind);
+    fill.style.width = (now[c] / max) * 100 + "%";
+    track.appendChild(fill);
+    row.appendChild(track);
+    card.appendChild(row);
+  });
+  card.appendChild(el("div", "ins-note", "Arrows compare with last month."));
+  wrap.appendChild(card);
+}
+
+// The last six months, side by side. Tap one to open it.
+function renderTrend() {
+  const wrap = $("#ins-trend");
+  wrap.innerHTML = "";
+  const list = statsHistory.slice().reverse(); // oldest first
+  const vals = list.map((h) => spendOf(h.rows));
+  if (vals.filter((v) => v > 0).length < 2) return;
+  const card = insCard("Last 6 months", "Needs + wants spent each month");
+  const W = 340, H = 150, T = 22, B = 24;
+  const slot = W / list.length;
+  const bw = Math.min(24, slot * 0.5);
+  const yMax = Math.max.apply(null, vals) || 1;
+  const svg = svgEl("svg", { viewBox: "0 0 " + W + " " + H, class: "chart", role: "img",
+    "aria-label": list.map((h, i) => periodMonth(h.period, true) + " " + euro0(vals[i])).join(", ") });
+  svg.appendChild(svgEl("line", { x1: 0, x2: W, y1: H - B, y2: H - B, class: "grid" }));
+  list.forEach((h, i) => {
+    const cx = slot * i + slot / 2;
+    const bh = Math.max(vals[i] > 0 ? 4 : 0, (vals[i] / yMax) * (H - T - B));
+    const x0 = cx - bw / 2, y0 = H - B - bh, rr = Math.min(4, bh);
+    const selected = i === list.length - 1;
+    const g = svgEl("g", { class: "col" + (selected ? " sel" : ""), tabindex: "0", role: "button" });
+    g.appendChild(svgEl("title", {}, periodMonth(h.period) + ": " + euro0(vals[i])));
+    g.appendChild(svgEl("rect", { x: cx - slot / 2, y: 0, width: slot, height: H, class: "hit" }));
+    if (bh > 0) g.appendChild(svgEl("path", { class: "bar",
+      d: "M" + x0 + " " + (H - B) + " V" + (y0 + rr) + " Q" + x0 + " " + y0 + " " + (x0 + rr) + " " + y0 +
+        " H" + (x0 + bw - rr) + " Q" + (x0 + bw) + " " + y0 + " " + (x0 + bw) + " " + (y0 + rr) + " V" + (H - B) + " Z" }));
+    if (selected || vals[i] === yMax) g.appendChild(svgEl("text", { x: cx, y: y0 - 6, class: "val", "text-anchor": "middle" }, compactEuro(vals[i])));
+    g.appendChild(svgEl("text", { x: cx, y: H - 7, class: "tick" + (selected ? " strong" : ""), "text-anchor": "middle" }, periodMonth(h.period, true)));
+    const go = () => {
+      if (selected) return;
+      statsPeriod = h.period;
+      statsFilter = { type: null, value: null };
+      haptic();
+      loadHistory();
+    };
+    g.addEventListener("click", go);
+    g.addEventListener("keydown", (e) => { if (e.key === "Enter") go(); });
+    svg.appendChild(g);
+  });
+  card.appendChild(svg);
+  wrap.appendChild(card);
+}
+
+// Filter chips above the transactions, and their count and total.
+function renderTxFilters() {
+  const wrap = $("#tx-filters");
+  wrap.innerHTML = "";
+  const chip = (label, type, value, cls) => {
+    const on = type ? statsFilter.type === type && statsFilter.value === value : !statsFilter.type;
+    const b = el("button", "fchip" + (on ? " active" : "") + (cls ? " " + cls : ""), label);
+    b.type = "button";
+    b.addEventListener("click", () => setFilter(on ? null : type, value));
+    wrap.appendChild(b);
+  };
+  chip("All", null, null);
+  if (statsFilter.type === "category") chip(statsFilter.value + "  ✕", "category", statsFilter.value);
+  chip("Needs", "kind", "need");
+  chip("Wants", "kind", "want");
+  chip("Saved", "kind", "saving");
+  if (statsRows.some(isIncome)) chip("Money in", "income", true);
+  const owed = statsRows.reduce((s, r) => s + pendingReimb(r), 0);
+  if (owed > 0) chip("Owed to you · " + euro0(owed), "pending", true, "owed");
+
+  const shown = statsRows.filter(matchesFilter);
+  const total = shown.reduce((s, r) => s + (statsFilter.type === "pending" ? pendingReimb(r)
+    : isIncome(r) ? (statsFilter.type === "income" ? Number(r.amount) || 0 : 0) : netAmount(r)), 0);
+  $("#tx-sum").textContent = !shown.length ? "" : statsFilter.type ? shown.length + " · " + euro0(total)
+    : shown.length + " entr" + (shown.length > 1 ? "ies" : "y");
+}
+
+function renderList(rows) {
+  const list = $("#hist-list");
+  list.innerHTML = "";
+  const shown = rows.filter(matchesFilter);
+  if (!shown.length) {
+    list.appendChild(el("div", "hist-empty card", statsFilter.type ? "Nothing matches this filter." : "Nothing logged this month."));
+    return;
+  }
+  let lastDay = null;
+  shown.forEach((r) => {
+    const d = new Date(r.created_at);
+    const key = d.toDateString();
+    if (key !== lastDay) {
+      lastDay = key;
+      list.appendChild(el("div", "hist-day", dayLabel(d)));
+    }
+    list.appendChild(renderItem(r));
+  });
 }
 
 /* ------------------------------------------------------------------ */
@@ -1062,7 +1357,6 @@ let budget = Object.assign({}, DEFAULT_BUDGET);
 let budgetLoaded = false;
 let budgetMissing = false; // the budgets table isn't created yet (old schema)
 let reimbFull = (() => { try { return !!localStorage.getItem(LS.reimbFull); } catch (e) { return false; } })();
-let billsOpen = (() => { try { return !!localStorage.getItem(LS.billsOpen); } catch (e) { return false; } })();
 
 // Budget figures are shown in whole euros.
 function euro0(n) { return formatEuro(Math.round(Number(n) || 0)); }
@@ -1084,6 +1378,24 @@ async function loadBudget() {
   }
   budgetMissing = false;
   budget = Object.assign({}, DEFAULT_BUDGET, data || {});
+  return true;
+}
+
+// Write the budget row: what's stored now (read fresh, so another device's
+// changes survive) with `changes` on top.
+// `changes` can be a function of the fresh budget.
+async function saveBudget(changes) {
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) { showScreen("screen-auth"); return false; }
+  if (!(await loadBudget())) { toast("Couldn't load your budget — try again", true); return false; }
+  if (typeof changes === "function") changes = changes(budget);
+  const next = Object.assign({
+    user_id: user.id, need_pct: budget.need_pct, want_pct: budget.want_pct, save_pct: budget.save_pct,
+    incomes: budget.incomes || {}, bills: budget.bills || [],
+  }, changes, { updated_at: new Date().toISOString() });
+  const { error } = await sb.from("budgets").upsert(next);
+  if (error) { toast(error.message, true); return false; }
+  budget = Object.assign({}, DEFAULT_BUDGET, next);
   return true;
 }
 
@@ -1124,143 +1436,6 @@ function bar(kind, used, reserved, total, markerPct, past) {
     track.appendChild(m);
   }
   return track;
-}
-
-function bucket(kind, label, spent, target, opts) {
-  opts = opts || {};
-  const b = el("div", "b-bucket");
-  // tap a bucket to filter the list below by it
-  const filter = { need: "need", want: "want", save: "saving" }[kind];
-  b.dataset.filter = filter;
-  b.addEventListener("click", () => setFilter("kind", filter));
-  const top = el("div", "b-top");
-  const name = el("span", "b-name");
-  name.appendChild(el("span", "dot " + kind));
-  name.appendChild(document.createTextNode(label));
-  top.appendChild(name);
-  top.appendChild(el("span", "b-amt", euro0(spent) + " / " + euro0(target)));
-  b.appendChild(top);
-  const past = kind === "save" ? (spent >= target ? "good" : null)
-    : spent + (opts.reserved || 0) > target ? "bad" : null;
-  b.appendChild(bar(kind, spent, opts.reserved || 0, target, opts.marker, past));
-  return b;
-}
-
-async function renderBudget(rows) {
-  const wrap = $("#budget");
-  if (!budgetLoaded) await loadBudget();
-  if (statsRows !== rows) return; // a newer month loaded meanwhile
-  wrap.innerHTML = "";
-
-  $(".nw").hidden = false; // the budget card replaces this bar once a salary is logged
-  if (budgetMissing) {
-    const c = el("div", "bcard empty");
-    c.appendChild(el("div", "hint", "Budgets need a database update: re-run supabase/schema.sql in the Supabase SQL editor."));
-    wrap.appendChild(c);
-    return;
-  }
-
-  const period = statsPeriod;
-  const salary = period.income;
-  if (salary == null) {
-    const c = el("div", "bcard empty");
-    c.appendChild(el("div", "hint", "Log your salary when it lands — your budget month runs from one payday to the next."));
-    const btn = el("button", "btn primary small", "+ Salary received");
-    btn.addEventListener("click", startSalary);
-    c.appendChild(btn);
-    const setup = el("button", "btn ghost small", "Bills & budget");
-    setup.addEventListener("click", () => openBudgetSettings());
-    c.appendChild(setup);
-    wrap.appendChild(c);
-    return;
-  }
-
-  const { current, today, dim, late, wantSpent, saved, extra, needBudget, wantBudget, saveTarget,
-    needMine, bills, upcoming, upcomingWant } = budgetFigures(rows, period);
-
-  // Three bars, no prose: solid = spent / saved, hatched = still planned.
-  const card = el("div", "bcard");
-  $(".nw").hidden = true;
-  if (late) card.appendChild(el("div", "b-late", "Payday was expected — log your salary"));
-
-  // wants: spent + subscriptions still to come, with a "today" marker for pace
-  card.appendChild(bucket("want", "Wants", wantSpent, wantBudget,
-    { reserved: upcomingWant, marker: current ? (today / dim) * 100 : null }));
-
-  // needs: your share paid so far + bills still planned this month
-  card.appendChild(bucket("need", "Needs", needMine, needBudget, { reserved: upcoming }));
-
-  // save: what you've put aside against the target; what's left in needs / wants
-  // at the end of the month is yours to move here
-  card.appendChild(bucket("save", "Save", saved, saveTarget));
-
-  const foot = el("div", "b-foot");
-  foot.appendChild(el("span", "", "Salary " + euro0(salary) + " · " +
-    period.start.toLocaleDateString(undefined, { day: "numeric", month: "short" })));
-  if (extra) {
-    // tap to list the money in below (edit or delete it from there)
-    const inBtn = el("button", "b-in" + (statsFilter.type === "income" ? " active" : ""), "+ " + euro0(extra) + " in ›");
-    inBtn.type = "button";
-    inBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      setFilter("income", true);
-      $("#stat-total").scrollIntoView({ behavior: "smooth", block: "start" });
-    });
-    foot.appendChild(inBtn);
-  }
-  card.appendChild(foot);
-  const acts = el("div", "b-acts");
-  const actBtn = (label, fn) => {
-    const b = el("button", "plan-act", label);
-    b.type = "button";
-    b.addEventListener("click", fn);
-    acts.appendChild(b);
-  };
-  if (current) {
-    actBtn("+ Money in", startIncome);
-    actBtn("+ Salary", startSalary);
-  }
-  // reimbursable expenses: count what's left on you, or the full amount
-  if (rows.some((r) => r.reimbursable)) {
-    // on (highlighted) = refunds taken off
-    const t = el("button", "plan-act toggle" + (reimbFull ? "" : " active"), "↩︎");
-    t.type = "button";
-    t.setAttribute("aria-label", "Take refunds off reimbursable expenses");
-    t.addEventListener("click", () => {
-      haptic();
-      reimbFull = !reimbFull;
-      try { localStorage.setItem(LS.reimbFull, reimbFull ? "1" : ""); } catch (e) {}
-      toast(reimbFull ? "Reimbursable: full amount" : "Reimbursable: after refund");
-      renderStats(statsRows);
-      renderList(statsRows);
-      renderBudget(statsRows);
-    });
-    acts.appendChild(t);
-  }
-  card.appendChild(acts);
-  wrap.appendChild(card);
-
-  // bills checklist (current month only), collapsed behind a summary header
-  if (current && bills.length) {
-    const toPay = bills.filter((b) => !b.paid);
-    const head = el("button", "fold-head" + (billsOpen ? " open" : ""));
-    head.type = "button";
-    head.appendChild(el("span", "", "Bills"));
-    head.appendChild(el("span", "fold-sum", toPay.length
-      ? toPay.length + " to pay · " + euro0(toPay.reduce((s, b) => s + b.amount, 0)) : "All paid ✓"));
-    const list = el("div", "fold-body");
-    list.hidden = !billsOpen;
-    head.addEventListener("click", () => {
-      billsOpen = !billsOpen;
-      try { localStorage.setItem(LS.billsOpen, billsOpen ? "1" : ""); } catch (e) {}
-      head.classList.toggle("open", billsOpen);
-      list.hidden = !billsOpen;
-    });
-    wrap.appendChild(head);
-    wrap.appendChild(list);
-    byDue(bills).forEach((b) => list.appendChild(billRow(b)));
-  }
-
 }
 
 // Everything the budget views need for a period: spent per bucket, the lines
@@ -1324,9 +1499,12 @@ function billRow(b) {
   main.appendChild(el("div", "plan-sub" + (overdue ? " bad" : ""), b.paid ? "Paid" : dueLabel(b.due, todayDate, "Not paid yet")));
   row.appendChild(main);
   row.appendChild(el("div", "plan-amt", euro0(b.amount)));
-  if (b.paid) row.appendChild(el("span", "plan-act done", "✓"));
-  else {
-    const pay = el("button", "plan-act", "Paid");
+  if (b.paid) {
+    const done = el("span", "plan-act done", "✓");
+    done.setAttribute("aria-label", "Paid");
+    row.appendChild(done);
+  } else {
+    const pay = el("button", "plan-act", "Mark paid");
     pay.type = "button";
     pay.addEventListener("click", () => logBill(b));
     row.appendChild(pay);
@@ -1348,7 +1526,7 @@ function dueLabel(due, today, fallback) {
   if (!due) return fallback;
   const inDays = daysBetween(today, due);
   return inDays < 0 ? "Was due " + due.toLocaleDateString(undefined, { day: "numeric", month: "short" })
-    : inDays === 0 ? "Due today" : "Due in " + inDays + " day" + (inDays > 1 ? "s" : "");
+    : inDays === 0 ? "Due today" : inDays === 1 ? "Due tomorrow" : "Due in " + inDays + " days";
 }
 
 // Bills are needs unless marked as a want (subscriptions).
@@ -1366,20 +1544,8 @@ async function logBill(b) {
   }).select();
   if (error) { toast(error.message, true); return; }
   const row = data && data[0];
-  toast(b.name + " logged · " + euro0(b.amount), false, row ? { label: "Change", fn: () => openEdit(row) } : null);
+  toast(b.name + " paid · " + euro0(b.amount), false, row ? { label: "Undo", fn: () => undoInsert(row.id) } : null);
   refresh();
-}
-
-// Extra money in: opens on the details step, where past sources are one tap
-// (same amount as last time). A new one: type the title, Save, then the amount.
-function startIncome() {
-  haptic();
-  const back = currentTab();
-  resetEntry();
-  entry.kind = "income";
-  entry.returnTo = back;
-  showScreen("screen-entry");
-  enterDetails();
 }
 
 // Money in saved from the details step: ask for the amount first if it's missing.
@@ -1388,14 +1554,15 @@ function saveIncome() {
   saveExpense();
 }
 
-/* ---- budget settings screen ---- */
-function inputCell(cls, value, placeholder, mode) {
+/* ---- edit lists (salaries, bills) ---- */
+function inputCell(cls, value, placeholder, mode, label) {
   const i = document.createElement("input");
   i.className = cls;
   i.type = "text";
   i.value = value == null ? "" : value;
   i.placeholder = placeholder;
   i.autocomplete = "off";
+  if (label) i.setAttribute("aria-label", label);
   if (mode) i.inputMode = mode;
   return i;
 }
@@ -1408,21 +1575,7 @@ function removeBtn(row) {
   return x;
 }
 
-function addBillRow(b) {
-  const row = el("div", "edit-row");
-  row.appendChild(inputCell("er-name", b.name, "Rent"));
-  row.appendChild(inputCell("er-amt", b.amount, "€", "decimal"));
-  row.appendChild(inputCell("er-day", b.day, "Day", "numeric"));
-  const kind = el("button", "er-kind");
-  kind.type = "button";
-  const setKind = (k) => { row.dataset.kind = k; kind.textContent = k === "want" ? "Want" : "Need"; kind.className = "er-kind " + k; };
-  setKind(billKind(b));
-  kind.addEventListener("click", () => { haptic(); setKind(row.dataset.kind === "want" ? "need" : "want"); });
-  row.appendChild(kind);
-  row.appendChild(removeBtn(row));
-  $("#bs-bills").appendChild(row);
-}
-
+/* ---- settings: salaries, split, preferences, account ---- */
 function updateSplitHint() {
   const sum = ["#bs-need", "#bs-want", "#bs-save"].reduce((s, id) => s + (parseFloat($(id).value) || 0), 0);
   const h = $("#bs-split-hint");
@@ -1430,11 +1583,19 @@ function updateSplitHint() {
   h.classList.toggle("bad", sum !== 100);
 }
 
-// Unsaved edits on the budget screen: leaving asks before dropping them.
+// Unsaved edits (settings, or the bills list): leaving asks before dropping them.
 let budgetDirty = false;
-function leaveBudgetSettings() {
-  if (budgetDirty && !confirm("Discard your budget changes?")) return false;
-  budgetDirty = false;
+function setBudgetDirty(on) {
+  budgetDirty = on;
+  $("#bs-save-btn").disabled = !on;
+}
+let billsDirty = false;
+function confirmLeave() {
+  const active = $(".screen.active");
+  const dirty = active && ((active.id === "screen-budget" && budgetDirty) || (active.id === "screen-bills" && billsDirty));
+  if (dirty && !confirm("Discard your changes?")) return false;
+  setBudgetDirty(false);
+  billsDirty = false;
   return true;
 }
 
@@ -1449,16 +1610,27 @@ function addSalaryRow(p, prepend) {
   date.className = "er-date";
   date.value = p.date || "";
   date.max = toDateInput(new Date());
+  date.setAttribute("aria-label", "Date");
   row.appendChild(date);
-  row.appendChild(inputCell("er-amt wide", p.amount, "€", "decimal"));
+  row.appendChild(inputCell("er-amt wide", p.amount, "€", "decimal", "Amount"));
   row.appendChild(removeBtn(row));
   const list = $("#bs-salaries");
   if (prepend) list.insertBefore(row, list.firstChild); else list.appendChild(row);
   return row;
 }
 
+function updateReimbPref() {
+  $$("#pref-reimb button").forEach((b) => b.classList.toggle("active", !!b.dataset.full === reimbFull));
+}
+
 async function openBudgetSettings() {
-  // always fresh: saving writes back every salary and bill shown here
+  showScreen("screen-budget");
+  $("#screen-budget .hist-scroll").scrollTop = 0;
+  updateReimbPref();
+  sb.auth.getSession().then(({ data }) => {
+    $("#acct-email").textContent = data && data.session && data.session.user ? data.session.user.email || "" : "";
+  });
+  // always fresh: saving writes back every salary shown here
   const ok = await loadBudget();
   if (budgetMissing) { toast("Re-run supabase/schema.sql first", true); return; }
   if (!ok) { toast("Couldn't load your budget — try again", true); return; }
@@ -1467,15 +1639,12 @@ async function openBudgetSettings() {
   pays.slice(SHOWN_PAYDAYS).forEach((p) => { hiddenPaydays[p.date] = p.amount; });
   $("#bs-salaries").innerHTML = "";
   pays.slice(0, SHOWN_PAYDAYS).forEach((p) => addSalaryRow(p));
+  if (!pays.length) $("#bs-salaries").appendChild(el("div", "edit-empty", "No salary logged yet. Add one, or use + → Salary when it lands."));
   $("#bs-need").value = budget.need_pct;
   $("#bs-want").value = budget.want_pct;
   $("#bs-save").value = budget.save_pct;
   updateSplitHint();
-  $("#bs-bills").innerHTML = "";
-  (budget.bills || []).forEach(addBillRow);
-  budgetDirty = false;
-  showScreen("screen-budget");
-  $("#screen-budget .hist-scroll").scrollTop = 0;
+  setBudgetDirty(false);
 }
 
 async function saveBudgetSettings() {
@@ -1492,45 +1661,19 @@ async function saveBudgetSettings() {
     incomes[date] = amount;
   }
 
-  const bills = [];
-  for (const row of $$("#bs-bills .edit-row")) {
-    const name = row.querySelector(".er-name").value.trim();
-    if (!name) continue;
-    const amount = parseMoney(row.querySelector(".er-amt").value);
-    if (amount == null) { toast("Invalid amount for " + name, true); return; }
-    const day = parseInt(row.querySelector(".er-day").value, 10);
-    bills.push({ name, amount, day: day >= 1 && day <= 31 ? day : null, kind: row.dataset.kind === "want" ? "want" : "need" });
-  }
-
-  const { data: { user } } = await sb.auth.getUser();
-  if (!user) { showScreen("screen-auth"); return; }
-  const next = {
-    user_id: user.id, need_pct: pcts[0], want_pct: pcts[1], save_pct: pcts[2],
-    incomes, bills, updated_at: new Date().toISOString(),
-  };
-  const { error } = await sb.from("budgets").upsert(next);
-  if (error) { toast(error.message, true); return; }
-  budget = Object.assign({}, DEFAULT_BUDGET, next);
-  budgetDirty = false;
+  if (!(await saveBudget({ need_pct: pcts[0], want_pct: pcts[1], save_pct: pcts[2], incomes }))) return;
   haptic();
   toast("Budget saved");
-  statsPeriod = periodFor(new Date());
-  statsFilter = { type: null, value: null };
-  homePick = null;
-  openHome();
+  statsPeriod = null;
+  openBudgetSettings();
 }
 
 /* ------------------------------------------------------------------ */
-/*  Home: the month at a glance                                        */
+/*  Home: this budget month at a glance                                */
 /* ------------------------------------------------------------------ */
-let homePick = null;  // start of a past period picked on Home; null = the current one
-let homeSeq = 0;      // drops a slow load when a newer one started
+let homeSeq = 0; // drops a slow load when a newer one started
 
-function homePeriod() { return homePick ? periodFor(homePick) : periodFor(new Date()); }
-
-// keepPeriod: stay on a past month picked on Home (coming back from an entry).
-async function openHome(keepPeriod) {
-  if (!keepPeriod) homePick = null;
+async function openHome() {
   showScreen("screen-home");
   $("#home-scroll").scrollTop = 0;
   loadHome();
@@ -1540,7 +1683,7 @@ async function loadHome() {
   const seq = ++homeSeq;
   renderHomeHead();
   if (!budgetLoaded) await loadBudget();
-  const period = homePeriod();
+  const period = periodFor(new Date());
   const prev = periodFor(addDays(period.start, -1));
   const [cur, old] = await Promise.all([fetchRows(period), fetchRows(prev)]);
   if (seq !== homeSeq) return;
@@ -1552,20 +1695,7 @@ function renderHomeHead() {
   const now = new Date();
   const h = now.getHours();
   $("#home-date").textContent = now.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
-  $("#home-hello").textContent = h >= 5 && h < 12 ? "Good morning\u00a0👋" : h >= 12 && h < 18 ? "Good afternoon\u00a0☀️" : "Good evening\u00a0🌙";
-  sb.auth.getSession().then(({ data }) => {
-    const email = data && data.session && data.session.user ? data.session.user.email || "" : "";
-    $("#home-avatar").textContent = (email.trim()[0] || "€").toUpperCase();
-  });
-}
-
-// "October budget": a payday period is named after the month most of it falls in.
-function periodName(p) {
-  if (!p.pay && p.end.getDate() !== 1) return periodLabel(p); // the days before your first salary
-  const mid = p.pay ? addDays(p.start, 14) : p.start;
-  const opts = { month: "long" };
-  if (mid.getFullYear() !== new Date().getFullYear()) opts.year = "numeric";
-  return mid.toLocaleDateString(undefined, opts) + " budget";
+  $("#home-hello").textContent = h >= 5 && h < 12 ? "Good morning" : h >= 12 && h < 18 ? "Good afternoon" : "Good evening";
 }
 
 // What you spent on needs (your share, after money in that covers bills) and
@@ -1596,13 +1726,9 @@ function ring(spentPct, reservedPct, over) {
   const C = 2 * Math.PI * 50;
   const s = Math.max(0, Math.min(1, spentPct));
   const r = Math.max(0, Math.min(1 - s, reservedPct));
-  const ns = "http://www.w3.org/2000/svg";
-  const svg = document.createElementNS(ns, "svg");
-  svg.setAttribute("viewBox", "0 0 120 120");
+  const svg = svgEl("svg", { viewBox: "0 0 120 120", "aria-hidden": "true" });
   const circle = (cls, len, offset) => {
-    const c = document.createElementNS(ns, "circle");
-    c.setAttribute("cx", "60"); c.setAttribute("cy", "60"); c.setAttribute("r", "50");
-    c.setAttribute("class", cls);
+    const c = svgEl("circle", { cx: 60, cy: 60, r: 50, class: cls });
     if (len != null) {
       c.setAttribute("stroke-dasharray", len + " " + C);
       c.setAttribute("stroke-dashoffset", String(-offset));
@@ -1619,38 +1745,18 @@ function ring(spentPct, reservedPct, over) {
 function homeStatus(f) {
   const spent = f.needMine + f.wantSpent;
   if (spent + f.upcoming + f.upcomingWant > f.needBudget + f.wantBudget) return ["Over budget", "bad"];
-  if (!f.current) return ["Under budget", "good"];
   if (f.late) return ["Payday due", "warn"];
   // wants are the day-to-day money: compare them with the time gone by
   if (f.wantSpent > f.wantBudget * Math.min(1, f.today / f.dim) * 1.1 + 1) return ["Ahead of pace", "warn"];
   return ["On track", "good"];
 }
 
-function heroTile(label, value, cls) {
-  const t = el("div", "hero-tile");
-  t.appendChild(el("div", "ht-label", label));
-  t.appendChild(el("div", "ht-val" + (cls ? " " + cls : ""), value));
-  return t;
-}
-
-// vs. last month: spent so far against the same number of days last period.
-function compareTile(rows, prevRows, prev, f) {
-  if (!prevRows || !prevRows.length) return heroTile("vs. last month", "—");
-  const until = f.current ? addDays(prev.start, f.today) : null;
-  const diff = spendOf(rows) - spendOf(prevRows, until);
-  if (Math.abs(diff) < 1) return heroTile("vs. last month", "Same");
-  return heroTile("vs. last month", (diff < 0 ? "↓ " : "↑ ") + euro0(Math.abs(diff)), diff < 0 ? "good" : "bad");
-}
-
 function renderHero(period, rows, prevRows, prev, f) {
   const hero = $("#hero");
   hero.innerHTML = "";
   const top = el("div", "hero-top");
-  const pill = el("button", "hero-pill");
-  pill.type = "button";
-  pill.appendChild(el("span", "", periodName(period)));
-  pill.appendChild(el("span", "hero-chev", "⌄"));
-  pill.addEventListener("click", openPeriodSheet);
+  const pill = el("span", "hero-pill", f.salary == null ? periodMonth(period) : periodMonth(period) + " budget");
+  pill.appendChild(infoBtn(period, "on-hero"));
   top.appendChild(pill);
   hero.appendChild(top);
 
@@ -1659,30 +1765,29 @@ function renderHero(period, rows, prevRows, prev, f) {
     return;
   }
 
-  const daysLeft = f.current ? Math.max(1, f.dim - f.today + 1) : 0;
+  const daysLeft = Math.max(1, f.dim - f.today + 1);
   const mid = el("div", "hero-mid");
   const text = el("div", "hero-text");
+  const [cmp, cmpCls] = compareValue(rows, prevRows, prev, f);
 
   if (f.salary == null) {
-    // no salary yet: what went out, per day, and a nudge to set the budget up
+    // no salary yet: what went out, per day, and the one step that sets up a budget
     const spent = spendOf(rows);
     text.appendChild(el("div", "hero-label", "Spent so far"));
     const big = el("div", "hero-big");
     big.appendChild(bigEuro(spent));
     text.appendChild(big);
-    text.appendChild(el("div", "hero-of", f.current ? daysLeft + " days left in " + period.start.toLocaleDateString(undefined, { month: "long" }) : periodLabel(period)));
+    text.appendChild(el("div", "hero-of", daysLeft + " days left in " + period.start.toLocaleDateString(undefined, { month: "long" })));
     mid.appendChild(text);
     hero.appendChild(mid);
     const tiles = el("div", "hero-tiles");
-    tiles.appendChild(heroTile("Per day", euro0(spent / daysElapsed(period))));
-    tiles.appendChild(compareTile(rows, prevRows, prev, f));
+    tiles.appendChild(statTile("hero-tile", "Per day", euro0(spent / daysElapsed(period))));
+    tiles.appendChild(statTile("hero-tile", "vs. last month", cmp, cmpCls));
     hero.appendChild(tiles);
-    if (f.current) {
-      const cta = el("button", "hero-cta", "Log your salary to set a budget ›");
-      cta.type = "button";
-      cta.addEventListener("click", startSalary);
-      hero.appendChild(cta);
-    }
+    const cta = el("button", "hero-cta", "Log your salary to set a budget ›");
+    cta.type = "button";
+    cta.addEventListener("click", startSalary);
+    hero.appendChild(cta);
     return;
   }
 
@@ -1707,104 +1812,157 @@ function renderHero(period, rows, prevRows, prev, f) {
   const big = el("div", "hero-big" + (over ? " bad" : ""));
   big.appendChild(bigEuro(left));
   text.appendChild(big);
-  const when = !f.current ? "closed" : f.late ? "payday expected" : daysLeft + " day" + (daysLeft > 1 ? "s" : "") + " left";
+  const when = f.late ? "payday expected" : daysLeft + " day" + (daysLeft > 1 ? "s" : "") + " left";
   text.appendChild(el("div", "hero-of", "of " + euro0(line) + " · " + when));
   if (reserved > 0) text.appendChild(el("div", "hero-of faint", euro0(reserved) + " kept for bills"));
   mid.appendChild(text);
   hero.appendChild(mid);
 
   const tiles = el("div", "hero-tiles");
-  if (f.current) tiles.appendChild(heroTile("Safe to spend today", formatEuro(Math.floor(Math.max(0, left) / daysLeft * 100) / 100)));
-  else tiles.appendChild(heroTile("Saved", euro0(f.saved) + " / " + euro0(f.saveTarget), f.saved >= f.saveTarget ? "good" : ""));
-  tiles.appendChild(compareTile(rows, prevRows, prev, f));
+  tiles.appendChild(statTile("hero-tile", "Safe to spend today", formatEuro(Math.floor(Math.max(0, left) / daysLeft * 100) / 100)));
+  tiles.appendChild(statTile("hero-tile", "vs. last month", cmp, cmpCls));
   hero.appendChild(tiles);
 }
 
-/* ---- tip card: one useful nudge at a time, dismissable ---- */
-function hiddenTips() {
-  try { const v = JSON.parse(localStorage.getItem(LS.tipsHidden) || "[]"); return Array.isArray(v) ? v : []; }
-  catch (e) { return []; }
-}
-function hideTip(key) {
-  const list = hiddenTips().filter((k) => k !== key).concat([key]).slice(-40);
-  try { localStorage.setItem(LS.tipsHidden, JSON.stringify(list)); } catch (e) {}
-}
-
-function homeTips(period, rows, f) {
-  const tips = [];
-  if (budgetMissing) return tips;
+/* ---- notifications: everything that needs you this month ---- */
+// Each alert: { id, icon, title, body, fn }. Most urgent first. The id is
+// stable for as long as the situation lasts, so "seen" and "dismissed" stick.
+function homeAlerts(period, rows, f) {
+  const out = [];
+  if (budgetMissing) return out;
   const todayDate = startOfDay(new Date());
-  if (f.salary == null) {
-    if (f.current) tips.push({ id: "salary", icon: "💼", title: "Set up your budget",
-      body: "Log your salary when it lands — your budget month runs from one payday to the next.", fn: startSalary });
-  } else if (f.late) {
-    tips.push({ id: "late", icon: "📅", title: "Payday was expected", body: "Log your salary to start a new budget month.", fn: startSalary });
-  }
-  if (f.current) {
-    const late = byDue(f.bills.filter((b) => !b.paid && b.due && b.due < todayDate))[0];
-    if (late) tips.push({ id: "bill-" + norm(late.name), icon: "🧾", title: late.name + " is overdue",
-      body: dueLabel(late.due, todayDate, "") + " · " + euro0(late.amount) + ". Tap Paid once it's gone out.", fn: openBills });
-  }
-  if (f.salary != null && f.current && !f.late && f.wantBudget > 0) {
-    const used = f.wantSpent / f.wantBudget;
-    if (used > 0.25 && used > (f.today / f.dim) * 1.15) {
-      const byCat = {};
-      rows.forEach((r) => {
-        if (r.kind !== "want") return;
-        (r.categories.length ? r.categories : ["Uncategorised"]).forEach((c) => { byCat[c] = (byCat[c] || 0) + netAmount(r); });
-      });
-      const top = Object.keys(byCat).sort((a, b) => byCat[b] - byCat[a])[0];
-      const daysLeft = Math.max(1, f.dim - f.today + 1);
-      const perDay = Math.max(0, f.wantBudget - f.wantSpent - f.upcomingWant) / daysLeft;
-      tips.push({ id: "hot", icon: "🔥", title: (top ? top : "Wants") + " " + (top ? "is" : "are") + " running hot",
-        body: "You've used " + Math.round(used * 100) + "% of your wants with " + daysLeft + " days to go. " +
-          (perDay >= 1 ? "Keep wants under " + euro0(perDay) + " a day to finish on budget."
-            : "Every want from here comes out of savings."),
-        fn: () => openHistory({ type: "kind", value: "want" }, period) });
+  const pid = "@" + toDateInput(period.start);
+  if (f.late) out.push({ id: "late" + pid, icon: "📅", title: "Payday was expected",
+    body: "Log your salary to start a new budget month.", fn: startSalary });
+  const unpaid = byDue(f.bills.filter((b) => !b.paid && b.due));
+  unpaid.filter((b) => b.due < todayDate).forEach((b) => out.push({ id: "overdue-" + norm(b.name) + pid, icon: "🧾",
+    title: b.name + " is overdue", body: dueLabel(b.due, todayDate, "") + " · " + euro0(b.amount) + ". Mark it paid once it's gone out.", fn: openBills }));
+  if (f.salary != null) {
+    const left = f.needBudget + f.wantBudget - f.needMine - f.wantSpent - f.upcoming - f.upcomingWant;
+    if (left < 0) out.push({ id: "over" + pid, icon: "⚠️", title: "You're " + euro0(-left) + " over budget",
+      body: "Spending plus the bills still to pay is past this month's needs + wants budget.", fn: () => openHistory(null, period) });
+    else if (!f.late && f.wantBudget > 0) {
+      const used = f.wantSpent / f.wantBudget;
+      if (used > 0.25 && used > (f.today / f.dim) * 1.15) {
+        const byCat = {};
+        rows.forEach((r) => {
+          if (r.kind !== "want") return;
+          (r.categories.length ? r.categories : ["Uncategorised"]).forEach((c) => { byCat[c] = (byCat[c] || 0) + netAmount(r); });
+        });
+        const top = Object.keys(byCat).sort((a, b) => byCat[b] - byCat[a])[0];
+        const daysLeft = Math.max(1, f.dim - f.today + 1);
+        const perDay = Math.max(0, f.wantBudget - f.wantSpent - f.upcomingWant) / daysLeft;
+        out.push({ id: "hot" + pid, icon: "🔥", title: "Wants are running hot",
+          body: "You've used " + Math.round(used * 100) + "% of your wants with " + daysLeft + " days to go" + (top ? ", most on " + top : "") + ". " +
+            (perDay >= 1 ? "Keep wants under " + euro0(perDay) + " a day to finish on budget." : "Every want from here comes out of savings."),
+          fn: () => openHistory({ type: "kind", value: "want" }, period) });
+      }
     }
   }
+  unpaid.filter((b) => b.due >= todayDate && daysBetween(todayDate, b.due) <= 3).forEach((b) => out.push({
+    id: "soon-" + norm(b.name) + pid, icon: "🗓️", title: b.name + " · " + euro0(b.amount),
+    body: dueLabel(b.due, todayDate, "") + ". It's already kept aside from your budget.", fn: openBills }));
   const pending = rows.reduce((s, r) => s + pendingReimb(r), 0);
-  if (pending > 0) tips.push({ id: "pending", icon: "↩︎", title: euro0(pending) + " still owed to you",
-    body: "From reimbursable expenses. Tap the badge on each one once the money's back.",
-    fn: () => openHistory({ type: "pending", value: true }, period) });
-  if (f.salary != null && f.current && !f.late && f.dim - f.today < 5 && f.saved < f.saveTarget) {
+  if (pending > 0) out.push({ id: "pending-" + Math.round(pending) + pid, icon: "↩︎", title: euro0(pending) + " still owed to you",
+    body: "From reimbursable expenses. Tap “got it?” on each one once the money's back.",
+    fn: () => openHistory({ type: "pending", value: true }, period, true) });
+  if (f.salary != null && !f.late && f.dim - f.today < 5 && f.saved < f.saveTarget) {
     const free = f.needBudget + f.wantBudget - f.needMine - f.wantSpent - f.upcoming - f.upcomingWant;
-    if (free >= 1) tips.push({ id: "save", icon: "🐷", title: "Move what's left to savings",
+    if (free >= 1) out.push({ id: "save" + pid, icon: "🐷", title: "Move what's left to savings",
       body: euro0(free) + " is still free with " + Math.max(1, f.dim - f.today + 1) + " days to go. Log it as Save to reach your " + euro0(f.saveTarget) + " target.",
       fn: startAdd });
   }
-  return tips;
+  return out;
 }
 
-function renderTip(period, rows, f) {
+function lsList(key) {
+  try { const v = JSON.parse(localStorage.getItem(key) || "[]"); return Array.isArray(v) ? v : []; }
+  catch (e) { return []; }
+}
+function lsAdd(key, ids) {
+  const list = lsList(key).filter((k) => ids.indexOf(k) < 0).concat(ids).slice(-80);
+  try { localStorage.setItem(key, JSON.stringify(list)); } catch (e) {}
+}
+
+let homeAlertList = [];
+
+// The bell's count: alerts you haven't seen yet.
+function renderBell() {
+  const seen = lsList(LS.alertsSeen);
+  const n = homeAlertList.filter((a) => seen.indexOf(a.id) < 0).length;
+  const c = $("#home-bell-count");
+  c.hidden = !n;
+  c.textContent = n > 9 ? "9+" : String(n);
+  $("#home-bell").setAttribute("aria-label", n ? "Notifications, " + n + " new" : "Notifications");
+}
+
+function alertRow(a, cls, onGo) {
+  const row = el("button", cls);
+  row.type = "button";
+  row.appendChild(el("span", "tip-ico", a.icon));
+  const main = el("div", "tip-main");
+  main.appendChild(el("div", "tip-title", a.title));
+  main.appendChild(el("div", "tip-body", a.body));
+  row.appendChild(main);
+  row.addEventListener("click", () => { haptic(); if (onGo) onGo(); a.fn(); });
+  return row;
+}
+
+// The bottom sheet: a title and its content.
+function openSheet(title, nodes) {
+  $("#sheet-title").textContent = title;
+  const list = $("#sheet-list");
+  list.innerHTML = "";
+  nodes.forEach((n) => list.appendChild(n));
+  $("#sheet").hidden = false;
+}
+
+function openAlerts() {
+  haptic();
+  const list = el("div");
+  if (!homeAlertList.length) {
+    const empty = el("div", "sheet-empty");
+    empty.appendChild(el("div", "sheet-empty-ico", "✓"));
+    empty.appendChild(el("div", "tip-title", "You're all caught up"));
+    empty.appendChild(el("div", "tip-body", "Bills due soon or overdue, overspending, payday and money owed to you show up here."));
+    list.appendChild(empty);
+  }
+  homeAlertList.forEach((a) => list.appendChild(alertRow(a, "alert-row", () => { $("#sheet").hidden = true; })));
+  openSheet("Notifications", [list]);
+  lsAdd(LS.alertsSeen, homeAlertList.map((a) => a.id));
+  renderBell();
+}
+
+// Home shows the most urgent alert you haven't dismissed; the bell has them all.
+function renderTip() {
   const wrap = $("#home-tip");
   wrap.innerHTML = "";
-  const hidden = hiddenTips();
-  const tip = homeTips(period, rows, f).find((t) => hidden.indexOf(t.id + "@" + toDateInput(period.start)) < 0);
+  const hidden = lsList(LS.tipsHidden);
+  const tip = homeAlertList.find((t) => hidden.indexOf(t.id) < 0);
   if (!tip) return;
   const card = el("div", "tip");
-  card.appendChild(el("div", "tip-ico", tip.icon));
-  const main = el("button", "tip-main");
-  main.type = "button";
-  main.appendChild(el("div", "tip-title", tip.title));
-  main.appendChild(el("div", "tip-body", tip.body));
-  main.addEventListener("click", () => { haptic(); tip.fn(); });
-  card.appendChild(main);
+  card.appendChild(alertRow(tip, "tip-btn"));
   const x = el("button", "tip-x", "✕");
   x.type = "button";
   x.setAttribute("aria-label", "Dismiss");
-  x.addEventListener("click", () => { haptic(); hideTip(tip.id + "@" + toDateInput(period.start)); renderTip(period, rows, f); });
+  x.addEventListener("click", () => { haptic(); lsAdd(LS.tipsHidden, [tip.id]); lsAdd(LS.alertsSeen, [tip.id]); renderTip(); renderBell(); });
   card.appendChild(x);
   wrap.appendChild(card);
+  const more = homeAlertList.length - 1;
+  if (more > 0) {
+    const all = el("button", "link tip-more", more + " more in notifications ›");
+    all.type = "button";
+    all.addEventListener("click", openAlerts);
+    wrap.appendChild(all);
+  }
 }
 
-/* ---- budgets: one card per bucket, tap to see its entries ---- */
+/* ---- budgets: one card per bucket, tap to see its transactions ---- */
 function homeBucket(period, kind, label, icon, spent, target, opts) {
   opts = opts || {};
-  const filter = { need: "need", want: "want", save: "saving" }[kind];
   const row = el("button", "hb-row");
   row.type = "button";
-  row.addEventListener("click", () => openHistory({ type: "kind", value: filter }, period));
+  row.addEventListener("click", () => openHistory({ type: "kind", value: KIND_FILTER[kind] }, period, true));
   const top = el("div", "hb-top");
   top.appendChild(el("span", "hb-ico " + kind, icon));
   const main = el("div", "hb-main");
@@ -1845,13 +2003,13 @@ function renderHomeBudgets(period, rows, f) {
     return;
   }
   wrap.appendChild(homeBucket(period, "want", "Wants", "✦", f.wantSpent, f.wantBudget,
-    { reserved: f.upcomingWant, marker: f.current ? (f.today / f.dim) * 100 : null }));
+    { reserved: f.upcomingWant, marker: (f.today / f.dim) * 100 }));
   wrap.appendChild(homeBucket(period, "need", "Needs", "✓", f.needMine, f.needBudget, { reserved: f.upcoming }));
   wrap.appendChild(homeBucket(period, "save", "Save", "◆", f.saved, f.saveTarget));
   if (f.extra) {
     const inBtn = el("button", "link hb-in", "+ " + euro0(f.extra) + " money in this month ›");
     inBtn.type = "button";
-    inBtn.addEventListener("click", () => openHistory({ type: "income", value: true }, period));
+    inBtn.addEventListener("click", () => openHistory({ type: "income", value: true }, period, true));
     wrap.appendChild(inBtn);
   }
 }
@@ -1859,64 +2017,44 @@ function renderHomeBudgets(period, rows, f) {
 function renderHome(period, rows, prevRows, prev) {
   const f = budgetFigures(rows, period);
   renderHero(period, rows, prevRows, prev, f);
-  renderTip(period, rows, f);
+  homeAlertList = homeAlerts(period, rows, f);
+  renderBell();
+  renderTip();
   renderHomeBudgets(period, rows, f);
 
-  // bills: the next ones to pay (current month only)
-  const todayDate = startOfDay(new Date());
-  const toPay = f.current ? byDue(f.bills.filter((b) => !b.paid)) : [];
-  $("#home-bell-dot").hidden = !toPay.some((b) => b.due && daysBetween(todayDate, b.due) <= 3);
-  const billsWrap = $("#home-bills-wrap");
-  billsWrap.hidden = !(f.current && f.bills.length);
+  // the next bills to pay
+  const toPay = byDue(f.bills.filter((b) => !b.paid));
+  $("#home-bills-wrap").hidden = !f.bills.length;
   const bl = $("#home-bills");
   bl.innerHTML = "";
   if (toPay.length) toPay.slice(0, 3).forEach((b) => bl.appendChild(billRow(b)));
   else bl.appendChild(el("div", "plan-row done-all", "All bills paid this month ✓"));
 
-  // recent entries: edit or delete them right here
+  // latest entries: tap one to edit it
   const rec = $("#home-recent");
   rec.innerHTML = "";
   if (!rows.length) {
-    rec.appendChild(el("div", "hist-empty card", isCurrentPeriod(period) ? "Nothing logged yet — tap + to add an expense." : "Nothing logged that month."));
+    rec.appendChild(el("div", "hist-empty card", "Nothing logged yet — tap + to add an expense."));
     return;
   }
   rows.slice(0, 5).forEach((r) => rec.appendChild(renderItem(r)));
 }
 
-/* ---- budget month picker ---- */
-function openPeriodSheet() {
-  haptic();
-  const list = $("#sheet-list");
-  list.innerHTML = "";
-  const shown = toDateInput(homePeriod().start);
-  let p = periodFor(new Date());
-  for (let i = 0; i < 12; i++) {
-    const start = p.start;
-    const current = i === 0;
-    const b = el("button", "sheet-item" + (toDateInput(start) === shown ? " active" : ""));
-    b.type = "button";
-    b.appendChild(el("span", "", periodName(p)));
-    if (p.pay) b.appendChild(el("span", "sheet-sub", periodLabel(p)));
-    b.addEventListener("click", () => {
-      homePick = current ? null : start;
-      $("#sheet").hidden = true;
-      haptic();
-      loadHome();
-    });
-    list.appendChild(b);
-    p = periodFor(addDays(p.start, -1));
-  }
-  $("#sheet").hidden = false;
-}
+/* ---- bills screen: this month's checklist, and editing the list ---- */
+let billsEditing = false;
 
-/* ---- bills screen ---- */
 async function openBills() {
+  billsEditing = false;
+  billsDirty = false;
   showScreen("screen-bills");
+  $("#bills-scroll").scrollTop = 0;
   loadBills();
 }
 
 async function loadBills() {
   if (!budgetLoaded) await loadBudget();
+  renderBillsMode();
+  if (billsEditing) return;
   const period = periodFor(new Date());
   const { data, error } = await fetchRows(period);
   if (error) { toast(error.message, true); return; }
@@ -1925,35 +2063,97 @@ async function loadBills() {
   const list = $("#bills-list");
   sum.innerHTML = "";
   list.innerHTML = "";
+  $("#bills-edit").hidden = !f.bills.length;
   if (!f.bills.length) {
     const c = el("div", "bcard empty");
-    c.appendChild(el("div", "hint", "Add your rent, subscriptions and other recurring payments: unpaid ones are kept aside from your budget, and one tap logs them."));
-    const add = el("button", "btn primary small", "+ Add bills");
-    add.addEventListener("click", () => openBudgetSettings());
+    c.appendChild(el("div", "empty-ico", "🧾"));
+    c.appendChild(el("div", "tip-title", "No bills yet"));
+    c.appendChild(el("div", "hint", "Add rent, subscriptions and other payments that come back every month. Unpaid ones are kept aside from your budget, and one tap marks them paid."));
+    const add = el("button", "btn primary small", "+ Add your bills");
+    add.type = "button";
+    add.addEventListener("click", () => editBills(true));
     c.appendChild(add);
     sum.appendChild(c);
     return;
   }
-  const toPay = f.bills.filter((b) => !b.paid);
+  const todayDate = startOfDay(new Date());
+  const toPay = byDue(f.bills.filter((b) => !b.paid));
   const total = f.bills.reduce((s, b) => s + b.amount, 0);
   const left = toPay.reduce((s, b) => s + b.amount, 0);
   const card = el("div", "bcard bills-card");
-  card.appendChild(el("div", "stat-total-label", toPay.length ? "Still to pay this month" : "All paid this month"));
-  card.appendChild(el("div", "stat-total-amount", euro0(left)));
-  card.appendChild(el("div", "stat-perday", (f.bills.length - toPay.length) + " of " + f.bills.length + " paid · " + euro0(total) + " a month"));
+  card.appendChild(el("div", "ins-label", toPay.length ? "Still to pay this month" : "All paid this month"));
+  const big = el("div", "ins-big");
+  big.appendChild(bigEuro(left));
+  card.appendChild(big);
+  card.appendChild(el("div", "ins-sub", (f.bills.length - toPay.length) + " of " + f.bills.length + " paid · " + euro0(total) + " a month"));
   const b = bar("need", total - left, 0, total);
   b.classList.add("bills-bar");
   card.appendChild(b);
   sum.appendChild(card);
-  if (toPay.length) {
-    list.appendChild(el("div", "section-label", "To pay"));
-    byDue(toPay).forEach((x) => list.appendChild(billRow(x)));
+  const section = (label, bills) => {
+    if (!bills.length) return;
+    list.appendChild(el("div", "section-label", label));
+    bills.forEach((x) => list.appendChild(billRow(x)));
+  };
+  section("Overdue", toPay.filter((x) => x.due && x.due < todayDate));
+  section("Coming up", toPay.filter((x) => !x.due || x.due >= todayDate));
+  section("Paid", f.bills.filter((x) => x.paid));
+}
+
+function renderBillsMode() {
+  $("#bills-view").hidden = billsEditing;
+  $("#bills-editor").hidden = !billsEditing;
+  $("#bills-edit").textContent = billsEditing ? "Cancel" : "Edit";
+  if (billsEditing) $("#bills-edit").hidden = false;
+}
+
+function addBillRow(b) {
+  const row = el("div", "edit-row");
+  row.appendChild(inputCell("er-name", b.name, "Rent", null, "Name"));
+  row.appendChild(inputCell("er-amt", b.amount, "€", "decimal", "Amount"));
+  row.appendChild(inputCell("er-day", b.day, "Day", "numeric", "Day of the month"));
+  const kind = el("button", "er-kind");
+  kind.type = "button";
+  const setKind = (k) => { row.dataset.kind = k; kind.textContent = k === "want" ? "Want" : "Need"; kind.className = "er-kind " + k; };
+  setKind(billKind(b));
+  kind.addEventListener("click", () => { haptic(); setKind(row.dataset.kind === "want" ? "need" : "want"); });
+  row.appendChild(kind);
+  row.appendChild(removeBtn(row));
+  $("#bs-bills").appendChild(row);
+  return row;
+}
+
+// Edit mode: the bills as rows of name / amount / day / need-want.
+function editBills(on) {
+  if (!on && !confirmLeave()) return;
+  haptic();
+  billsEditing = on;
+  billsDirty = false;
+  if (on) {
+    $("#bs-bills").innerHTML = "";
+    (budget.bills || []).forEach(addBillRow);
+    if (!(budget.bills || []).length) addBillRow({}).querySelector("input").focus();
   }
-  const paid = f.bills.filter((x) => x.paid);
-  if (paid.length) {
-    list.appendChild(el("div", "section-label", "Paid"));
-    paid.forEach((x) => list.appendChild(billRow(x)));
+  $("#bills-scroll").scrollTop = 0;
+  loadBills();
+}
+
+async function saveBills() {
+  const bills = [];
+  for (const row of $$("#bs-bills .edit-row")) {
+    const name = row.querySelector(".er-name").value.trim();
+    if (!name) continue;
+    const amount = parseMoney(row.querySelector(".er-amt").value);
+    if (amount == null) { toast("Invalid amount for " + name, true); return; }
+    const day = parseInt(row.querySelector(".er-day").value, 10);
+    bills.push({ name, amount, day: day >= 1 && day <= 31 ? day : null, kind: row.dataset.kind === "want" ? "want" : "need" });
   }
+  if (!(await saveBudget({ bills }))) return;
+  haptic();
+  toast("Bills saved");
+  billsDirty = false;
+  billsEditing = false;
+  loadBills();
 }
 
 /* ---- navigation ---- */
@@ -1967,11 +2167,9 @@ function startAdd() {
 }
 
 function navTab(tab) {
-  // leaving the budget settings: ask before dropping unsaved changes
-  if ($("#screen-budget").classList.contains("active")) {
-    if (tab === "settings") return;
-    if (!leaveBudgetSettings()) return;
-  }
+  const active = $(".screen.active");
+  if (active && TABS[active.id] === tab && tab !== "home") return;
+  if (!confirmLeave()) return;
   haptic();
   if (tab === "add") startAdd();
   else if (tab === "home") openHome();
@@ -2130,7 +2328,8 @@ function wire() {
 
   // amount -> details (or straight to save for prefilled flows)
   $("#amount-next").addEventListener("click", () => {
-    if (entry.amount === 0) { toast("Enter an amount", true); return; }
+    // money in can go on without one: a past source's chip brings its amount
+    if (entry.amount === 0 && entry.kind !== "income") { toast("Enter an amount", true); return; }
     if (entry.kind === "salary") { saveSalary(); return; }
     if (entry.quick) { saveExpense(); return; }
     enterDetails();
@@ -2174,45 +2373,55 @@ function wire() {
   });
 
   // nav
-  $("#sign-out").addEventListener("click", signOut);
   $("#entry-close").addEventListener("click", () => {
     const back = entry.returnTo || "screen-home";
     resetEntry();
     showStep("step-amount");
     goScreen(back);
   });
+  $("#entry-delete").addEventListener("click", deleteEntry);
+  $$("#mode button").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)));
   $$(".tab[data-tab]").forEach((t) => t.addEventListener("click", () => navTab(t.dataset.tab)));
   $("#tab-add").addEventListener("click", () => navTab("add"));
-  $("#q-add").addEventListener("click", startAdd);
-  $("#q-in").addEventListener("click", startIncome);
-  $("#q-salary").addEventListener("click", startSalary);
-  $("#q-bills").addEventListener("click", openBills);
-  $("#home-bell").addEventListener("click", openBills);
-  $("#home-avatar").addEventListener("click", () => openBudgetSettings());
-  $("#home-see-budgets").addEventListener("click", () => openHistory(null, homePeriod()));
-  $("#home-see-bills").addEventListener("click", openBills);
-  $("#home-see-all").addEventListener("click", () => openHistory(null, homePeriod()));
-  $("#bills-edit").addEventListener("click", () => openBudgetSettings());
+
+  // home
+  $("#home-bell").addEventListener("click", openAlerts);
+  $("#home-see-bills").addEventListener("click", () => navTab("bills"));
+  $("#home-see-all").addEventListener("click", () => openHistory(null, null, true));
   $("#sheet").addEventListener("click", (e) => { if (e.target.id === "sheet") $("#sheet").hidden = true; });
+
+  // insights
   $("#month-prev").addEventListener("click", () => changeMonth(-1));
   $("#month-next").addEventListener("click", () => changeMonth(1));
-  $("#go-budget").addEventListener("click", () => openBudgetSettings());
-  $("#budget-back").addEventListener("click", () => { if (leaveBudgetSettings()) openHome(true); });
-  $("#screen-budget").addEventListener("input", () => (budgetDirty = true));
-  $("#screen-budget .hist-scroll").addEventListener("click", (e) => {
-    if (e.target.closest(".er-kind, .hi-act, .add-row")) budgetDirty = true;
+
+  // bills
+  $("#bills-edit").addEventListener("click", () => editBills(!billsEditing));
+  $("#bs-add-bill").addEventListener("click", () => { billsDirty = true; addBillRow({}).querySelector("input").focus(); });
+  $("#bills-save").addEventListener("click", saveBills);
+  $("#bills-editor").addEventListener("input", () => (billsDirty = true));
+  $("#bills-editor").addEventListener("click", (e) => { if (e.target.closest(".er-kind, .hi-act")) billsDirty = true; });
+
+  // settings
+  $("#screen-budget").addEventListener("input", (e) => { if (e.target.closest("#bs-salaries, .split-grid")) setBudgetDirty(true); });
+  $("#bs-salaries").addEventListener("click", (e) => { if (e.target.closest(".hi-act")) setBudgetDirty(true); });
+  $("#bs-add-salary").addEventListener("click", () => {
+    const empty = $("#bs-salaries .edit-empty");
+    if (empty) empty.remove();
+    addSalaryRow({ date: toDateInput(new Date()) }, true);
+    setBudgetDirty(true);
   });
-  $("#bs-add-bill").addEventListener("click", () => addBillRow({}));
-  $("#bs-add-salary").addEventListener("click", () => addSalaryRow({ date: toDateInput(new Date()) }, true));
   $("#bs-save-btn").addEventListener("click", saveBudgetSettings);
   ["#bs-need", "#bs-want", "#bs-save"].forEach((id) => $(id).addEventListener("input", updateSplitHint));
-
-  // stats filters
-  $("#nw-need-item").addEventListener("click", () => setFilter("kind", "need"));
-  $("#nw-want-item").addEventListener("click", () => setFilter("kind", "want"));
-  $("#nw-save-item").addEventListener("click", () => setFilter("kind", "saving"));
-  $("#stat-clear").addEventListener("click", () => setFilter(statsFilter.type, statsFilter.value));
-  $("#reimb-pending").addEventListener("click", () => setFilter("pending", true));
+  $$("#pref-reimb button").forEach((b) => b.addEventListener("click", () => {
+    reimbFull = !!b.dataset.full;
+    try { localStorage.setItem(LS.reimbFull, reimbFull ? "1" : ""); } catch (e) {}
+    haptic();
+    updateReimbPref();
+  }));
+  $("#sign-out").addEventListener("click", signOut);
+  $("#acct-supabase").addEventListener("click", () => {
+    if (confirm("Disconnect this Supabase project? You'll paste the URL and key again.")) resetConfig();
+  });
 }
 
 /* ------------------------------------------------------------------ */

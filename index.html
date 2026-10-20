@@ -52,7 +52,7 @@
     </div>
   </section>
 
-  <!-- Home: budget at a glance -->
+  <!-- Home: this budget month at a glance -->
   <section id="screen-home" class="screen">
     <div id="home-scroll" class="hist-scroll home-scroll">
       <header class="home-head">
@@ -60,26 +60,18 @@
           <div id="home-date" class="home-date"></div>
           <h1 id="home-hello" class="home-hello"></h1>
         </div>
-        <button id="home-bell" class="round-btn" type="button" aria-label="Bills"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg><span id="home-bell-dot" class="bell-dot" hidden></span></button>
-        <button id="home-avatar" class="round-btn avatar" type="button" aria-label="Budget settings"></button>
+        <button id="home-bell" class="round-btn" type="button" aria-label="Notifications"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg><span id="home-bell-count" class="bell-count" hidden></span></button>
       </header>
 
       <div id="hero" class="hero"></div>
 
-      <div class="quick">
-        <button id="q-add" class="quick-btn" type="button"><span class="quick-ico"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span>Add</button>
-        <button id="q-in" class="quick-btn" type="button"><span class="quick-ico">💶</span>Money in</button>
-        <button id="q-salary" class="quick-btn" type="button"><span class="quick-ico">💼</span>Salary</button>
-        <button id="q-bills" class="quick-btn" type="button"><span class="quick-ico">🧾</span>Bills</button>
-      </div>
-
       <div id="home-tip"></div>
 
-      <div class="sec-head"><h2>Budgets</h2><button id="home-see-budgets" class="link" type="button">See all</button></div>
+      <div class="sec-head"><h2>Budgets</h2></div>
       <div id="home-budgets" class="card-list"></div>
 
       <div id="home-bills-wrap" hidden>
-        <div class="sec-head"><h2>Bills</h2><button id="home-see-bills" class="link" type="button">See all</button></div>
+        <div class="sec-head"><h2>Upcoming bills</h2><button id="home-see-bills" class="link" type="button">See all</button></div>
         <div id="home-bills"></div>
       </div>
 
@@ -90,15 +82,19 @@
 
   <!-- Entry flow -->
   <section id="screen-entry" class="screen">
-    <!-- top bar: today's context + history -->
     <header class="topbar">
       <button id="entry-close" class="icon-btn" aria-label="Close"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
       <span id="progress" class="progress"></span>
-      <span class="icon-btn" aria-hidden="true"></span>
+      <div class="topbar-slot"><button id="entry-delete" class="icon-btn danger" type="button" aria-label="Delete" hidden><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg></button></div>
     </header>
 
-    <!-- Step 1: amount -->
+    <!-- Step 1: amount (+ what it is: an expense, money in or a salary) -->
     <div id="step-amount" class="step active">
+      <div id="mode" class="seg" role="tablist" aria-label="Type">
+        <button type="button" role="tab" data-mode="expense">Expense</button>
+        <button type="button" role="tab" data-mode="income">Money in</button>
+        <button type="button" role="tab" data-mode="salary">Salary</button>
+      </div>
       <div class="amount-wrap">
         <div id="amount" class="amount">€0.00</div>
       </div>
@@ -163,81 +159,53 @@
     </div>
   </section>
 
-  <!-- History / stats -->
+  <!-- Insights: where the money went, month by month, and every transaction -->
   <section id="screen-history" class="screen">
-    <header class="topbar">
-      <span class="icon-btn" aria-hidden="true"></span>
-      <span class="progress">Insights</span>
-      <button id="go-budget" class="icon-btn" aria-label="Budget settings">⚙</button>
-    </header>
-
+    <header class="page-head"><h1>Insights</h1></header>
     <div class="month-nav">
-      <button id="month-prev" class="icon-btn" aria-label="Previous month">‹</button>
-      <div id="month-label" class="month-label"></div>
-      <button id="month-next" class="icon-btn" aria-label="Next month">›</button>
+      <button id="month-prev" class="icon-btn" type="button" aria-label="Previous month">‹</button>
+      <div class="month-label"><div class="month-name"><span id="month-label"></span><span id="month-info"></span></div><div id="month-sub" class="month-sub"></div></div>
+      <button id="month-next" class="icon-btn" type="button" aria-label="Next month">›</button>
     </div>
-
     <div id="hist-scroll" class="hist-scroll">
-      <div id="budget"></div>
-
-      <div class="stat-total">
-        <div class="stat-total-label" id="stat-label">Total spent</div>
-        <div id="stat-total" class="stat-total-amount">€0</div>
-        <div id="stat-perday" class="stat-perday">€0 / day</div>
-        <button id="stat-clear" class="stat-clear" type="button" hidden>✕ Clear filter</button>
-      </div>
-
-      <div id="reimb-pending" class="reimb-pending" role="button" hidden>
-        <span>↩︎ Pending reimbursement</span>
-        <b id="reimb-pending-amt">€0</b>
-      </div>
-
-      <div class="nw">
-        <div class="nw-bar">
-          <div id="nw-need" class="nw-seg need" style="width:0"></div>
-          <div id="nw-want" class="nw-seg want" style="width:0"></div>
-          <div id="nw-save" class="nw-seg save" style="width:0"></div>
-        </div>
-        <div class="nw-legend">
-          <button id="nw-need-item" class="nw-item" type="button"><span class="dot need"></span>Needs&nbsp;<b id="nw-need-amt">€0</b>&nbsp;<span class="pct" id="nw-need-pct"></span></button>
-          <button id="nw-want-item" class="nw-item" type="button"><span class="dot want"></span>Wants&nbsp;<b id="nw-want-amt">€0</b>&nbsp;<span class="pct" id="nw-want-pct"></span></button>
-          <button id="nw-save-item" class="nw-item" type="button"><span class="dot save"></span>Saved&nbsp;<b id="nw-save-amt">€0</b>&nbsp;<span class="pct" id="nw-save-pct"></span></button>
-        </div>
-      </div>
-
-      <div id="cat-breakdown"></div>
-
+      <div id="ins-summary"></div>
+      <div id="ins-pace"></div>
+      <div id="ins-split"></div>
+      <div id="ins-cats"></div>
+      <div id="ins-trend"></div>
+      <div id="tx-anchor" class="sec-head"><h2>Transactions</h2><span id="tx-sum" class="sec-sub"></span></div>
+      <div id="tx-filters" class="filter-row"></div>
       <div id="hist-list" class="hist-list-inner"></div>
     </div>
   </section>
 
-  <!-- Bills -->
+  <!-- Bills: this month's checklist, and the list itself (Edit) -->
   <section id="screen-bills" class="screen">
-    <header class="topbar">
-      <span class="icon-btn" aria-hidden="true"></span>
-      <span class="progress">Bills</span>
-      <button id="bills-edit" class="icon-btn" aria-label="Edit bills">⚙</button>
-    </header>
-    <div class="hist-scroll">
-      <div id="bills-sum"></div>
-      <div id="bills-list"></div>
+    <header class="page-head"><h1>Bills</h1><button id="bills-edit" class="link" type="button">Edit</button></header>
+    <div id="bills-scroll" class="hist-scroll">
+      <div id="bills-view">
+        <div id="bills-sum"></div>
+        <div id="bills-list"></div>
+      </div>
+      <div id="bills-editor" hidden>
+        <p class="hint small-hint">Recurring payments and the day they usually go out. Tap <b>Need</b> / <b>Want</b> to switch: rent is a need, Spotify a want. Unpaid ones are kept aside from that budget.</p>
+        <div id="bs-bills" class="edit-list"></div>
+        <button id="bs-add-bill" class="btn ghost small add-row" type="button">+ Add bill</button>
+        <button id="bills-save" class="btn primary wide bs-save" type="button">Save bills</button>
+      </div>
     </div>
   </section>
 
-  <!-- Budget settings -->
+  <!-- Settings -->
   <section id="screen-budget" class="screen">
-    <header class="topbar">
-      <button id="budget-back" class="icon-btn" aria-label="Back">‹</button>
-      <span class="progress">Budget</span>
-      <span class="icon-btn" aria-hidden="true"></span>
-    </header>
+    <header class="page-head"><h1>Settings</h1></header>
     <div class="hist-scroll">
       <div class="section-label">Salary received</div>
       <p class="hint small-hint">Each salary starts a new budget month, running until the next one lands.</p>
       <div id="bs-salaries" class="edit-list"></div>
       <button id="bs-add-salary" class="btn ghost small add-row" type="button">+ Add salary</button>
 
-      <div class="section-label">Split</div>
+      <div class="section-label">Budget split</div>
       <div class="split-grid">
         <label class="split-cell need"><span>Needs %</span><input id="bs-need" type="text" inputmode="numeric" /></label>
         <label class="split-cell want"><span>Wants %</span><input id="bs-want" type="text" inputmode="numeric" /></label>
@@ -245,14 +213,20 @@
       </div>
       <p id="bs-split-hint" class="hint small-hint"></p>
 
-      <div class="section-label">Bills</div>
-      <p class="hint small-hint">Recurring payments and their usual day. Tap <b>Need</b> / <b>Want</b> to switch: rent goes in needs, Spotify in wants. Unpaid ones are reserved from that budget.</p>
-      <div id="bs-bills" class="edit-list"></div>
-      <button id="bs-add-bill" class="btn ghost small add-row" type="button">+ Add bill</button>
+      <button id="bs-save-btn" class="btn primary wide bs-save" type="button" disabled>Save changes</button>
 
+      <div class="section-label">Reimbursable expenses count as</div>
+      <div id="pref-reimb" class="seg wide">
+        <button type="button" data-full="">What's left after refund</button>
+        <button type="button" data-full="1">The full amount</button>
+      </div>
 
-      <button id="bs-save-btn" class="btn primary wide bs-save">Save budget</button>
-      <button id="sign-out" class="btn ghost small wide sign-out" type="button">Sign out</button>
+      <div class="section-label">Account</div>
+      <div class="set-list">
+        <div class="set-row"><span>Signed in as</span><b id="acct-email"></b></div>
+        <button id="sign-out" class="set-row danger" type="button">Sign out</button>
+        <button id="acct-supabase" class="set-row muted" type="button">Change Supabase project</button>
+      </div>
     </div>
   </section>
 
@@ -265,10 +239,11 @@
     <button class="tab" data-tab="settings" type="button"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Settings</button>
   </nav>
 
-  <!-- Budget month picker -->
+  <!-- Notifications -->
   <div id="sheet" class="sheet" hidden>
-    <div class="sheet-card">
-      <div class="sheet-title">Budget month</div>
+    <div class="sheet-card" role="dialog" aria-labelledby="sheet-title">
+      <div class="sheet-grip"></div>
+      <div id="sheet-title" class="sheet-title"></div>
       <div id="sheet-list"></div>
     </div>
   </div>
