@@ -29,6 +29,7 @@ const LS = {
   reimbFull: "saver.reimb_full",
   tipsHidden: "saver.tips_hidden",
   alertsSeen: "saver.alerts_seen",
+  privacy: "saver.privacy",
 };
 
 // Categories you've used, most used first. Learned from your saved expenses
@@ -107,6 +108,60 @@ function formatEuro(euros) {
   const grouped = whole.toLocaleString("en-US"); // 1,234
   const dec = frac ? "." + String(frac).padStart(2, "0") : "";
   return (neg ? "-" : "") + "€" + grouped + dec;
+}
+
+/* ------------------------------------------------------------------ */
+/*  Privacy: the eye button blurs every amount (except while entering one) */
+/* ------------------------------------------------------------------ */
+const MONEY_RE = /(?:[-+]\s?)?€\s?[\d,]+(?:\.\d+)?K?/g;
+
+// Wrap the euro amounts in a text node in <span class="money"> so they can be
+// blurred; in a chart, the <text> itself gets the class.
+function markMoneyText(node) {
+  const parent = node.parentNode;
+  if (!parent || parent.closest(".money, script, style, #screen-entry")) return;
+  const s = node.nodeValue;
+  MONEY_RE.lastIndex = 0;
+  if (!MONEY_RE.test(s)) return;
+  if (parent instanceof SVGElement) { parent.classList.add("money"); return; }
+  const frag = document.createDocumentFragment();
+  let last = 0;
+  s.replace(MONEY_RE, (m, i) => {
+    if (i > last) frag.appendChild(document.createTextNode(s.slice(last, i)));
+    frag.appendChild(el("span", "money", m));
+    last = i + m.length;
+  });
+  if (last < s.length) frag.appendChild(document.createTextNode(s.slice(last)));
+  parent.replaceChild(frag, node);
+}
+
+function markMoney(root) {
+  if (root.nodeType === Node.TEXT_NODE) { markMoneyText(root); return; }
+  if (root.nodeType !== Node.ELEMENT_NODE) return;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  nodes.forEach(markMoneyText);
+}
+
+function setPrivacy(on) {
+  document.body.classList.toggle("privacy", on);
+  const b = $("#home-eye");
+  b.setAttribute("aria-pressed", String(on));
+  b.setAttribute("aria-label", on ? "Show amounts" : "Hide amounts");
+  try { if (on) localStorage.setItem(LS.privacy, "1"); else localStorage.removeItem(LS.privacy); } catch (e) {}
+}
+
+function initPrivacy() {
+  markMoney(document.body);
+  new MutationObserver((list) => list.forEach((m) => {
+    if (m.type === "characterData") markMoneyText(m.target);
+    else m.addedNodes.forEach(markMoney);
+  })).observe(document.body, { childList: true, subtree: true, characterData: true });
+  let on = false;
+  try { on = !!localStorage.getItem(LS.privacy); } catch (e) {}
+  setPrivacy(on);
+  $("#home-eye").addEventListener("click", () => { haptic(); setPrivacy(!document.body.classList.contains("privacy")); });
 }
 
 /* ------------------------------------------------------------------ */
@@ -1963,7 +2018,7 @@ function spendOf(rows, until) {
 // Big money: whole euros, with cents (if any) set smaller.
 function bigEuro(n) {
   const s = formatEuro(Math.round(Math.abs(n) * 100) / 100);
-  const frag = document.createDocumentFragment();
+  const frag = el("span", "money");
   const dot = s.indexOf(".");
   frag.appendChild(document.createTextNode(dot < 0 ? s : s.slice(0, dot)));
   if (dot >= 0) frag.appendChild(el("small", "", s.slice(dot)));
@@ -2637,6 +2692,7 @@ function wire() {
   $("#tab-add").addEventListener("click", () => navTab("add"));
 
   // home
+  initPrivacy();
   $("#home-bell").addEventListener("click", openAlerts);
   $("#home-see-bills").addEventListener("click", () => navTab("bills"));
   $("#home-see-all").addEventListener("click", () => openHistory(null, null, true));
