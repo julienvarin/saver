@@ -526,6 +526,13 @@ body.tabbed .toast { bottom: calc(104px + var(--safe-bottom)); }
   font-family: inherit; font-weight: 700; font-size: 22px; line-height: 1;
 }
 .round-btn:active { transform: scale(.94); }
+#home-eye .eye-closed, .privacy #home-eye .eye-open { display: none; }
+.privacy #home-eye .eye-closed { display: block; }
+
+/* privacy: amounts blurred (the eye button on Home) */
+.money { transition: filter .2s; }
+.privacy .money { filter: blur(.32em); user-select: none; -webkit-user-select: none; }
+.privacy .er-amt:not(:focus) { filter: blur(4px); }
 .bell-count {
   position: absolute; top: 4px; right: 2px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px;
   background: #f43f5e; color: #fff; font-size: 11px; font-weight: 800; line-height: 18px; text-align: center;
