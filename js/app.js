@@ -30,7 +30,31 @@ const LS = {
   tipsHidden: "saver.tips_hidden",
   alertsSeen: "saver.alerts_seen",
   privacy: "saver.privacy",
+  trip: "saver.trip",
 };
+
+// Trip tags: why you were away. Stored as a category next to what you bought
+// ("Eat out · Holiday"), picked with one tap, and kept on for the next
+// expenses until you switch it off or stop logging for a few days.
+const TRIPS = [["Work trip", "💼 Work"], ["Family trip", "🏡 Family"], ["Holiday", "🌴 Holiday"]];
+const TRIP_DAYS = 3;
+function isTrip(c) { return TRIPS.some(([t]) => t === c); }
+function withoutTrips(cats) { return (cats || []).filter((c) => !isTrip(c)); }
+function tripOf(cats) { return (cats || []).find(isTrip) || null; }
+
+// The trip you're on: the last one you logged with, within TRIP_DAYS.
+function activeTrip() {
+  try {
+    const t = JSON.parse(localStorage.getItem(LS.trip) || "null");
+    return t && isTrip(t.name) && Date.now() - t.at < TRIP_DAYS * DAY ? t.name : null;
+  } catch (e) { return null; }
+}
+function setActiveTrip(name) {
+  try {
+    if (name) localStorage.setItem(LS.trip, JSON.stringify({ name, at: Date.now() }));
+    else localStorage.removeItem(LS.trip);
+  } catch (e) {}
+}
 
 // Categories you've used, most used first. Learned from your saved expenses
 // (so they sync across devices) and cached locally for an instant render.
@@ -171,6 +195,7 @@ const entry = {
   amount: 0, // whole euros
   title: "",
   categories: [],
+  trip: null,       // trip tag (see TRIPS), kept apart from the category chips
   kind: null,
   reimbursable: false,
   reimbursed: false,
@@ -191,6 +216,7 @@ function resetEntry() {
   entry.amount = 0;
   entry.title = "";
   entry.categories = [];
+  entry.trip = activeTrip();
   entry.kind = null;
   entry.reimbursable = false;
   entry.reimbursed = false;
@@ -293,6 +319,7 @@ function updateFlagsUI() {
     inp.value = entry.reimbAmount;
     inp.placeholder = "Full · " + formatEuro(entry.amount);
   }
+  $$("#trip .pill").forEach((b) => b.classList.toggle("active", b.dataset.trip === entry.trip));
   updateDateUI();
 }
 function updateDateUI() {
@@ -320,6 +347,7 @@ function updateIncomeUI() {
   $$("#in-kind .pill").forEach((b) => b.classList.toggle("active", (b.dataset.in === "extra") === entry.extra));
 }
 function setExtra(on) { entry.extra = on; haptic(); updateIncomeUI(); }
+function toggleTrip(name) { entry.trip = entry.trip === name ? null : name; haptic(); updateFlagsUI(); }
 function toggleReceived() { entry.reimbursed = !entry.reimbursed; haptic(); updateFlagsUI(); }
 
 // Details step: title, recent entries, categories, flags, need / want.
@@ -385,7 +413,7 @@ function buildChips() {
   const wrap = $("#cats");
   wrap.innerHTML = "";
   const starters = CATEGORIES.filter((n) => n !== "Other");
-  const names = (savedCats.length ? savedCats : starters).concat(["Other"]);
+  const names = withoutTrips(savedCats.length ? savedCats : starters).concat(["Other"]);
   names.forEach((name) => {
     if (name === "Other") {
       const b = makeChip("+");
@@ -452,7 +480,7 @@ function addCustomCategory(rawName) {
 
 // Pre-select chips for an existing expense's categories (used when editing).
 function applyCategories(cats) {
-  (cats || []).forEach((name) => {
+  withoutTrips(cats).forEach((name) => {
     const chip = $$("#cats .chip").find((c) => !c.dataset.custom && !c.classList.contains("add") && c.textContent === name);
     if (chip) { chip.classList.add("selected"); if (entry.categories.indexOf(name) < 0) entry.categories.push(name); }
     else addCustomCategoryDirect(name);
@@ -546,11 +574,11 @@ function renderSuggest() {
     b.appendChild(el("span", "dot " + (k.kind !== "income" ? k.kind : isExtra(k) ? "save" : "need")));
     b.appendChild(el("span", "sg-title", k.title));
     if (income) b.appendChild(el("span", "sg-cats", "+" + formatEuro(k.amount)));
-    else if (k.categories.length) b.appendChild(el("span", "sg-cats", k.categories.join(" · ")));
+    else if (withoutTrips(k.categories).length) b.appendChild(el("span", "sg-cats", withoutTrips(k.categories).join(" · ")));
     b.addEventListener("click", () => {
       if (!entry.amount) entry.amount = Math.round(k.amount); // money in: same as last time
       entry.title = k.title;
-      entry.categories = k.categories.slice();
+      entry.categories = withoutTrips(k.categories);
       entry.kind = k.kind;
       if (income) entry.extra = isExtra(k);
       saveExpense();
@@ -620,7 +648,7 @@ async function saveExpense() {
     user_id: user.id,
     amount: entry.amount,
     title: entry.title || null,
-    categories: entry.kind === "income" ? (entry.extra ? [EXTRA] : []) : entry.categories,
+    categories: entry.kind === "income" ? (entry.extra ? [EXTRA] : []) : withoutTrips(entry.categories).concat(entry.trip ? [entry.trip] : []),
     kind: entry.kind,
     reimbursable: entry.reimbursable,
     reimbursed: entry.reimbursable ? entry.reimbursed : false,
@@ -659,6 +687,8 @@ async function saveExpense() {
   }
 
   const savedCatsUsed = record.kind === "income" ? [] : record.categories.slice();
+  // a new expense keeps the trip on for the next ones (or switches it off)
+  if (!editing && record.kind !== "income") setActiveTrip(entry.trip);
   const back = entry.returnTo || "screen-home";
   const newId = !editing && data && data[0] ? data[0].id : null;
   rememberTitle(record);
@@ -872,7 +902,7 @@ function openEdit(r) {
   entry.date = toDateInput(new Date(r.created_at));
   entry.catsTouched = true;
   if (isIncome(r)) entry.extra = isExtra(r);
-  else applyCategories(r.categories || []);
+  else { applyCategories(r.categories || []); entry.trip = tripOf(r.categories); }
   renderAmount();
   $("#title-input").value = entry.title;
   syncMiniAmount();
@@ -1813,7 +1843,9 @@ async function confirmCard(item, kind) {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) { showScreen("screen-auth"); return; }
   const g = guessFor(item);
-  const record = { user_id: user.id, amount: Math.round(Number(item.amount) || 0), title: g.title, categories: g.categories,
+  const trip = activeTrip();
+  const record = { user_id: user.id, amount: Math.round(Number(item.amount) || 0), title: g.title,
+    categories: withoutTrips(g.categories).concat(trip ? [trip] : []),
     kind, merchant: item.merchant, created_at: item.created_at };
   const { data, error } = await sb.from("expenses").insert(record).select();
   if (error) { toast("Couldn't save: " + error.message, true); return; }
@@ -2666,6 +2698,14 @@ function wire() {
   // flags + kind (tapping a kind saves)
   $("#reimb-toggle").addEventListener("click", toggleReimb);
   $("#received-toggle").addEventListener("click", toggleReceived);
+  const tripRow = $("#trip");
+  TRIPS.forEach(([name, label]) => {
+    const b = el("button", "pill", label);
+    b.type = "button";
+    b.dataset.trip = name;
+    b.addEventListener("click", () => toggleTrip(name));
+    tripRow.appendChild(b);
+  });
   $("#reimb-amt").addEventListener("input", (e) => (entry.reimbAmount = e.target.value));
   $$(".kind-btn").forEach((b) => b.addEventListener("click", () => {
     if (!$("#cat-custom-wrap").hidden) addCustomCategory($("#cat-custom").value);

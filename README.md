@@ -19,7 +19,10 @@ budget, a category or a tile to filter the transactions.
 **The flow:** tap **+** → type the amount → Next → title + category on one screen → tap Need or Want → saved.
 The switch above the keypad turns it into **Money in** or a **Salary**. Things you've logged before
 show up as one-tap chips ("Lidl · Groceries"), so a repeat expense is just the amount and one tap.
-The **Today ▾** chip logs it on another day. Tap any entry to edit or delete it; every save, delete
+The **Today ▾** chip logs it on another day.
+On the road? Tap **💼 Work**, **🏡 Family** or **🌴 Holiday** once: it stays on for every
+expense you log (card payments too) until you switch it off or stop logging for 3 days, and
+Insights can filter by it ("Eat out · Holiday"). Tap any entry to edit or delete it; every save, delete
 or bill payment can be undone from the toast.
 
 No build step, no framework — plain HTML/CSS/JS + the Supabase JS client from a CDN.
