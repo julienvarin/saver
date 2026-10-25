@@ -120,7 +120,10 @@
     <div id="step-details" class="step">
       <div class="det-head">
         <button id="det-back" class="det-amount" type="button" aria-label="Change amount"><span class="det-back-ico">‹</span><span id="det-amount"></span></button>
+        <div class="det-chips">
+        <button id="trip-chip" class="date-chip trip-chip" type="button" aria-label="Trip">✈ Trip</button>
         <label class="date-chip"><span id="date-label">Today</span><input id="entry-date" type="date" aria-label="Date" /></label>
+        </div>
       </div>
       <input id="title-input" class="field" type="text" enterkeyhint="done" autocomplete="off" autocapitalize="sentences" placeholder="What was it?" />
       <div id="suggest" class="suggest"></div>
@@ -129,7 +132,7 @@
         <div id="cat-custom-wrap" class="cat-custom" hidden>
           <input id="cat-custom" class="field" type="text" enterkeyhint="done" autocomplete="off" autocapitalize="words" placeholder="New category name" />
         </div>
-        <div id="trip" class="flags trip" aria-label="Trip"></div>
+        <div id="trip" class="flags trip" aria-label="Trip" hidden></div>
         <div class="flags">
           <button id="reimb-toggle" class="pill" type="button">↩︎ Reimbursable</button>
           <button id="received-toggle" class="pill sub" type="button" hidden>✓ Received back</button>
@@ -143,6 +146,7 @@
           <button class="kind-btn want" data-kind="want"><span class="k-emoji">✦</span>Want</button>
         </div>
         <div class="kind-row">
+          <button id="lunch-btn" class="kind-btn small lunch" type="button"><span class="k-emoji">🍽</span>Work lunch</button>
           <button class="kind-btn small save" data-kind="save"><span class="k-emoji">◆</span>Save</button>
         </div>
       </div>
@@ -216,6 +220,13 @@
       <p id="bs-split-hint" class="hint small-hint"></p>
 
       <button id="bs-save-btn" class="btn primary wide bs-save" type="button" disabled>Save changes</button>
+
+      <div class="section-label">Work lunch</div>
+      <label class="inline-field">
+        <span>Work pays back per lunch (€)</span>
+        <input id="lunch-cap" type="text" inputmode="decimal" autocomplete="off" />
+      </label>
+      <p class="hint small-hint">🍽 Work lunch logs up to this as a need, the rest as a want.</p>
 
       <div class="section-label">Reimbursable expenses count as</div>
       <div id="pref-reimb" class="seg wide">

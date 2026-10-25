@@ -20,9 +20,11 @@ budget, a category or a tile to filter the transactions.
 The switch above the keypad turns it into **Money in** or a **Salary**. Things you've logged before
 show up as one-tap chips ("Lidl · Groceries"), so a repeat expense is just the amount and one tap.
 The **Today ▾** chip logs it on another day.
-On the road? Tap **💼 Work**, **🏡 Family** or **🌴 Holiday** once: it stays on for every
+On the road? Tap **✈ Trip** and pick **💼 Work**, **🏡 Family** or **🌴 Holiday** once: it stays on for every
 expense you log (card payments too) until you switch it off or stop logging for 3 days, and
-Insights can filter by it ("Eat out · Holiday"). Tap any entry to edit or delete it; every save, delete
+Insights can filter by it ("Eat out · Holiday").
+**🍽 Work lunch** saves a lunch work pays back with your salary: up to the amount set in Settings
+(€7.50 by default) is a need, anything above it a want. Tap any entry to edit or delete it; every save, delete
 or bill payment can be undone from the toast.
 
 No build step, no framework — plain HTML/CSS/JS + the Supabase JS client from a CDN.

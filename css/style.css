@@ -230,7 +230,9 @@ body {
   position: relative; flex: 0 0 auto; border: 1px solid var(--line); background: var(--surface);
   color: var(--muted); font-size: 14px; font-weight: 600; padding: 9px 14px; border-radius: 999px;
 }
-.date-chip::after { content: " ▾"; }
+.det-chips { display: flex; gap: 8px; flex: 0 0 auto; }
+.date-chip:not(.trip-chip)::after { content: " ▾"; }
+.trip-chip { cursor: pointer; }
 .date-chip.set { color: var(--text); border-color: var(--accent); }
 /* the native picker sits invisibly on top of the chip */
 .date-chip input { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; }
@@ -309,7 +311,7 @@ body {
 
 /* need / want */
 .kind-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.kind-row { display: grid; grid-template-columns: 1fr; gap: 12px; }
+.kind-row { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 12px; }
 .kind-btn.selected { border-color: var(--accent); background: var(--surface-2); }
 .kind-btn {
   border: 1px solid var(--line);

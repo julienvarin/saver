@@ -31,6 +31,7 @@ const LS = {
   alertsSeen: "saver.alerts_seen",
   privacy: "saver.privacy",
   trip: "saver.trip",
+  lunchCap: "saver.lunch_cap",
 };
 
 // Trip tags: why you were away. Stored as a category next to what you bought
@@ -41,6 +42,35 @@ const TRIP_DAYS = 3;
 function isTrip(c) { return TRIPS.some(([t]) => t === c); }
 function withoutTrips(cats) { return (cats || []).filter((c) => !isTrip(c)); }
 function tripOf(cats) { return (cats || []).find(isTrip) || null; }
+function tripLabel(name) { const t = TRIPS.find(([n]) => n === name); return t ? t[1] : "✈ Trip"; }
+
+// Work lunch: a need up to what work pays back per lunch (it comes back with
+// the salary), the rest a want. Logged as two rows, both tagged "Work lunch".
+const WORK_LUNCH = "Work lunch";
+function isWorkLunch(r) { return (r.categories || []).includes(WORK_LUNCH); }
+// Trip and work lunch tags, which have their own buttons instead of chips.
+function withoutTags(cats) { return withoutTrips(cats).filter((c) => c !== WORK_LUNCH); }
+function lunchCap() {
+  try {
+    const v = parseFloat(String(localStorage.getItem(LS.lunchCap) ?? "").replace(",", "."));
+    return isFinite(v) && v >= 0 ? v : 7.5;
+  } catch (e) { return 7.5; }
+}
+// The rows to insert for a new expense: a work lunch splits at the cap.
+function splitLunch(record) {
+  if (!isWorkLunch(record) || (record.kind !== "need" && record.kind !== "want")) return [record];
+  const cap = lunchCap();
+  const amount = Number(record.amount) || 0;
+  if (amount <= cap) return [Object.assign({}, record, { kind: "need" })];
+  if (cap <= 0) return [Object.assign({}, record, { kind: "want" })];
+  return [Object.assign({}, record, { amount: cap, kind: "need" }),
+    Object.assign({}, record, { amount: Math.round((amount - cap) * 100) / 100, kind: "want" })];
+}
+function splitToast(rows) {
+  const r = rows[0];
+  return rows.length > 1 ? (r.title || WORK_LUNCH) + " · " + formatEuro(rows[0].amount) + " need + " + formatEuro(rows[1].amount) + " want"
+    : (r.title || formatEuro(r.amount));
+}
 
 // The trip you're on: the last one you logged with, within TRIP_DAYS.
 function activeTrip() {
@@ -196,6 +226,8 @@ const entry = {
   title: "",
   categories: [],
   trip: null,       // trip tag (see TRIPS), kept apart from the category chips
+  tripOpen: false,  // the trip picker is showing
+  lunch: false,     // work lunch: split into need / want at save
   kind: null,
   reimbursable: false,
   reimbursed: false,
@@ -217,6 +249,8 @@ function resetEntry() {
   entry.title = "";
   entry.categories = [];
   entry.trip = activeTrip();
+  entry.tripOpen = false;
+  entry.lunch = false;
   entry.kind = null;
   entry.reimbursable = false;
   entry.reimbursed = false;
@@ -302,7 +336,7 @@ async function setMode(mode) {
 // hint: kind remembered for the typed title, highlighted until you pick one
 function updateKindUI(hint) {
   const k = entry.kind || hint;
-  $$(".kind-btn").forEach((b) => b.classList.toggle("selected", k === b.dataset.kind));
+  $$(".kind-btn[data-kind]").forEach((b) => b.classList.toggle("selected", k === b.dataset.kind));
 }
 function updateFlagsUI() {
   const r = $("#reimb-toggle");
@@ -320,6 +354,11 @@ function updateFlagsUI() {
     inp.placeholder = "Full · " + formatEuro(entry.amount);
   }
   $$("#trip .pill").forEach((b) => b.classList.toggle("active", b.dataset.trip === entry.trip));
+  $("#trip").hidden = !entry.tripOpen;
+  const tc = $("#trip-chip");
+  tc.textContent = tripLabel(entry.trip);
+  tc.classList.toggle("set", !!entry.trip);
+  $("#lunch-btn").hidden = !!entry.editId;
   updateDateUI();
 }
 function updateDateUI() {
@@ -347,7 +386,8 @@ function updateIncomeUI() {
   $$("#in-kind .pill").forEach((b) => b.classList.toggle("active", (b.dataset.in === "extra") === entry.extra));
 }
 function setExtra(on) { entry.extra = on; haptic(); updateIncomeUI(); }
-function toggleTrip(name) { entry.trip = entry.trip === name ? null : name; haptic(); updateFlagsUI(); }
+function toggleTrip(name) { entry.trip = entry.trip === name ? null : name; entry.tripOpen = false; haptic(); updateFlagsUI(); }
+function toggleTripPicker() { entry.tripOpen = !entry.tripOpen; haptic(); updateFlagsUI(); }
 function toggleReceived() { entry.reimbursed = !entry.reimbursed; haptic(); updateFlagsUI(); }
 
 // Details step: title, recent entries, categories, flags, need / want.
@@ -413,7 +453,7 @@ function buildChips() {
   const wrap = $("#cats");
   wrap.innerHTML = "";
   const starters = CATEGORIES.filter((n) => n !== "Other");
-  const names = withoutTrips(savedCats.length ? savedCats : starters).concat(["Other"]);
+  const names = withoutTags(savedCats.length ? savedCats : starters).concat(["Other"]);
   names.forEach((name) => {
     if (name === "Other") {
       const b = makeChip("+");
@@ -480,7 +520,7 @@ function addCustomCategory(rawName) {
 
 // Pre-select chips for an existing expense's categories (used when editing).
 function applyCategories(cats) {
-  withoutTrips(cats).forEach((name) => {
+  withoutTags(cats).forEach((name) => {
     const chip = $$("#cats .chip").find((c) => !c.dataset.custom && !c.classList.contains("add") && c.textContent === name);
     if (chip) { chip.classList.add("selected"); if (entry.categories.indexOf(name) < 0) entry.categories.push(name); }
     else addCustomCategoryDirect(name);
@@ -578,7 +618,8 @@ function renderSuggest() {
     b.addEventListener("click", () => {
       if (!entry.amount) entry.amount = Math.round(k.amount); // money in: same as last time
       entry.title = k.title;
-      entry.categories = withoutTrips(k.categories);
+      entry.categories = withoutTags(k.categories);
+      entry.lunch = isWorkLunch(k);
       entry.kind = k.kind;
       if (income) entry.extra = isExtra(k);
       saveExpense();
@@ -648,7 +689,7 @@ async function saveExpense() {
     user_id: user.id,
     amount: entry.amount,
     title: entry.title || null,
-    categories: entry.kind === "income" ? (entry.extra ? [EXTRA] : []) : withoutTrips(entry.categories).concat(entry.trip ? [entry.trip] : []),
+    categories: entry.kind === "income" ? (entry.extra ? [EXTRA] : []) : withoutTags(entry.categories).concat(entry.lunch ? [WORK_LUNCH] : [], entry.trip ? [entry.trip] : []),
     kind: entry.kind,
     reimbursable: entry.reimbursable,
     reimbursed: entry.reimbursable ? entry.reimbursed : false,
@@ -674,9 +715,10 @@ async function saveExpense() {
   showStep("step-saved");
   haptic();
 
+  const rows = editing ? [record] : splitLunch(record);
   const q = editing
     ? sb.from("expenses").update(record).eq("id", entry.editId)
-    : sb.from("expenses").insert(record).select();
+    : sb.from("expenses").insert(rows).select();
   const { data, error } = await q;
   if (error) {
     console.error(error);
@@ -690,22 +732,22 @@ async function saveExpense() {
   // a new expense keeps the trip on for the next ones (or switches it off)
   if (!editing && record.kind !== "income") setActiveTrip(entry.trip);
   const back = entry.returnTo || "screen-home";
-  const newId = !editing && data && data[0] ? data[0].id : null;
-  rememberTitle(record);
-  rememberMerchant(record);
+  const newIds = !editing && data ? data.map((d) => d.id) : [];
+  rememberTitle(rows[0]);
+  rememberMerchant(rows[0]);
   if (card) await removeFromInbox(card);
   setTimeout(() => {
     resetEntry();
     rememberCats(savedCatsUsed);
     showStep("step-amount");
     goScreen(back);
-    if (newId) toast("Saved " + (record.title || formatEuro(record.amount)), false, { label: "Undo", fn: () => undoInsert(newId, card) });
+    if (newIds.length) toast("Saved " + splitToast(rows), false, { label: "Undo", fn: () => undoInsert(newIds, card) });
   }, 650);
 }
 
 // card: the card payment it came from goes back to the inbox
-async function undoInsert(id, card) {
-  const { error } = await sb.from("expenses").delete().eq("id", id);
+async function undoInsert(ids, card) {
+  const { error } = await sb.from("expenses").delete().in("id", ids);
   if (error) { toast(error.message, true); return; }
   if (card) await sb.from("card_inbox").insert(card);
   haptic();
@@ -902,7 +944,7 @@ function openEdit(r) {
   entry.date = toDateInput(new Date(r.created_at));
   entry.catsTouched = true;
   if (isIncome(r)) entry.extra = isExtra(r);
-  else { applyCategories(r.categories || []); entry.trip = tripOf(r.categories); }
+  else { applyCategories(r.categories || []); entry.trip = tripOf(r.categories); entry.lunch = isWorkLunch(r); }
   renderAmount();
   $("#title-input").value = entry.title;
   syncMiniAmount();
@@ -1847,15 +1889,17 @@ async function confirmCard(item, kind) {
   const record = { user_id: user.id, amount: Math.round(Number(item.amount) || 0), title: g.title,
     categories: withoutTrips(g.categories).concat(trip ? [trip] : []),
     kind, merchant: item.merchant, created_at: item.created_at };
-  const { data, error } = await sb.from("expenses").insert(record).select();
+  const rows = splitLunch(record);
+  const { data, error } = await sb.from("expenses").insert(rows).select();
   if (error) { toast("Couldn't save: " + error.message, true); return; }
   rememberTitle(record);
   rememberMerchant(record);
   rememberCats(record.categories);
   await removeFromInbox(item);
   afterInboxChange();
-  const id = data && data[0] && data[0].id;
-  toast("Logged " + record.title + " · " + (kind === "need" ? "Need" : "Want"), false, id ? { label: "Undo", fn: () => undoInsert(id, item) } : null);
+  const ids = (data || []).map((d) => d.id);
+  const what = rows.length > 1 ? splitToast(rows) : record.title + " · " + (rows[0].kind === "need" ? "Need" : "Want");
+  toast("Logged " + what, false, ids.length ? { label: "Undo", fn: () => undoInsert(ids, item) } : null);
 }
 
 // Not an expense (or already logged by hand): drop it.
@@ -1885,6 +1929,7 @@ function editCard(item) {
   entry.date = toDateInput(new Date(item.created_at));
   entry.catsTouched = g.categories.length > 0;
   applyCategories(g.categories);
+  entry.lunch = isWorkLunch(g);
   renderAmount();
   $("#title-input").value = entry.title;
   showScreen("screen-entry");
@@ -2707,7 +2752,16 @@ function wire() {
     tripRow.appendChild(b);
   });
   $("#reimb-amt").addEventListener("input", (e) => (entry.reimbAmount = e.target.value));
-  $$(".kind-btn").forEach((b) => b.addEventListener("click", () => {
+  $("#trip-chip").addEventListener("click", toggleTripPicker);
+  $("#lunch-btn").addEventListener("click", () => {
+    if (!$("#cat-custom-wrap").hidden) addCustomCategory($("#cat-custom").value);
+    if (!entry.title) entry.title = "Lunch";
+    if (!withoutTags(entry.categories).length) entry.categories.push("Eat out");
+    entry.lunch = true;
+    entry.kind = "need";
+    saveExpense();
+  });
+  $$(".kind-btn[data-kind]").forEach((b) => b.addEventListener("click", () => {
     if (!$("#cat-custom-wrap").hidden) addCustomCategory($("#cat-custom").value);
     entry.kind = b.dataset.kind;
     saveExpense();
@@ -2763,6 +2817,13 @@ function wire() {
   });
   $("#bs-save-btn").addEventListener("click", saveBudgetSettings);
   ["#bs-need", "#bs-want", "#bs-save"].forEach((id) => $(id).addEventListener("input", updateSplitHint));
+  $("#lunch-cap").value = String(lunchCap()).replace(".", ",");
+  $("#lunch-cap").addEventListener("change", (e) => {
+    const v = parseFloat(e.target.value.replace(",", "."));
+    try { localStorage.setItem(LS.lunchCap, isFinite(v) && v >= 0 ? String(v) : ""); } catch (err) {}
+    e.target.value = String(lunchCap()).replace(".", ",");
+    haptic();
+  });
   $$("#pref-reimb button").forEach((b) => b.addEventListener("click", () => {
     reimbFull = !!b.dataset.full;
     try { localStorage.setItem(LS.reimbFull, reimbFull ? "1" : ""); } catch (e) {}
