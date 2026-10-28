@@ -71,6 +71,11 @@
       <div class="sec-head"><h2>Budgets</h2></div>
       <div id="home-budgets" class="card-list"></div>
 
+      <div id="home-flat-wrap" hidden>
+        <div class="sec-head"><h2>Flat</h2></div>
+        <div id="home-flat" class="card-list"></div>
+      </div>
+
       <div id="home-bills-wrap" hidden>
         <div class="sec-head"><h2>Upcoming bills</h2><button id="home-see-bills" class="link" type="button">See all</button></div>
         <div id="home-bills"></div>
@@ -131,6 +136,7 @@
         </div>
         <div class="flags">
           <button id="reimb-toggle" class="pill" type="button">↩︎ Reimbursable</button>
+          <button id="flat-toggle" class="pill" type="button">🏠 Flat</button>
           <button id="received-toggle" class="pill sub" type="button" hidden>✓ Received back</button>
         </div>
         <label id="reimb-amt-wrap" class="inline-field" hidden>
@@ -146,6 +152,7 @@
         </div>
       </div>
       <div id="in-kind" class="flags" hidden>
+        <button class="pill" data-in="flat" type="button">🏠 Flat</button>
         <button class="pill" data-in="bills" type="button">Covers bills</button>
         <button class="pill" data-in="extra" type="button">Extra · split</button>
       </div>
@@ -172,6 +179,7 @@
       <div id="ins-summary"></div>
       <div id="ins-pace"></div>
       <div id="ins-split"></div>
+      <div id="ins-flat"></div>
       <div id="ins-cats"></div>
       <div id="ins-trend"></div>
       <div id="tx-anchor" class="sec-head"><h2>Transactions</h2><span id="tx-sum" class="sec-sub"></span></div>
@@ -189,7 +197,7 @@
         <div id="bills-list"></div>
       </div>
       <div id="bills-editor" hidden>
-        <p class="hint small-hint">Recurring payments and the day they usually go out. Tap <b>Need</b> / <b>Want</b> to switch: rent is a need, Spotify a want. Unpaid ones are kept aside from that budget.</p>
+        <p class="hint small-hint">Recurring payments and the day they usually go out. Tap <b>Need</b> / <b>Want</b> / <b>Flat</b> to switch: rent is a need, Spotify a want, the sub-let's bills are the flat's. Unpaid needs and wants are kept aside from that budget; the flat's come off its own balance.</p>
         <div id="bs-bills" class="edit-list"></div>
         <button id="bs-add-bill" class="btn ghost small add-row" type="button">+ Add bill</button>
         <button id="bills-save" class="btn primary wide bs-save" type="button">Save bills</button>

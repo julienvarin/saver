@@ -20,6 +20,9 @@ alter table public.expenses add column if not exists split        boolean not nu
 alter table public.expenses add column if not exists reimbursable boolean not null default false;
 alter table public.expenses add column if not exists reimbursed   boolean not null default false;
 alter table public.expenses add column if not exists reimb_amount numeric(12, 2) check (reimb_amount >= 0);
+-- The second flat (sub-let): its bills and the sub-tenant's rent live in their own balance,
+-- outside needs / wants, so a rent that's late (or paid early) never skews the budget.
+alter table public.expenses add column if not exists flat boolean not null default false;
 -- kinds: 'need', 'want', 'save' (money put aside) and 'income' (extra money in on top of
 -- salary, e.g. a sub-tenant paying you). The old 'debt' kind is gone: a late bill is just a need.
 alter table public.expenses drop constraint if exists expenses_kind_check;
@@ -63,7 +66,7 @@ create policy "own rows - delete" on public.expenses
 -- Budget settings: one row per user.
 --   incomes: {"2026-10": 2500, ...}  monthly income; a month without one uses the latest earlier month
 --   bills:   [{"name": "Rent", "amount": 800, "day": 5, "kind": "need"}, ...]  planned monthly bills
---            and subscriptions; kind "need" (default) or "want"
+--            and subscriptions; kind "need" (default), "want" or "flat" (the sub-let flat's)
 --   debts:   no longer used (kept so old data isn't lost)
 create table if not exists public.budgets (
   user_id    uuid primary key references auth.users (id) on delete cascade default auth.uid(),

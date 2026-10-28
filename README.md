@@ -121,12 +121,22 @@ out of the day-to-day "pace" so they don't skew it.
 you've logged before show up as chips with their last amount — tap **Next** without an amount, then
 one tap logs it again. For a new one, type the amount, a title, pick where it goes and tap **Save**:
 
-- **Covers bills** (a sub-tenant paying rent, internet, electricity) — taken off what you spent
+- **🏠 Flat** (the sub-tenant's rent for a flat you sub-let) — goes on the flat's own balance, see
+  below. Nothing in your budget moves.
+- **Covers bills** (someone chipping in for rent, internet, electricity) — taken off what you spent
   on Needs, so the Needs bar shows your own share. No line moves.
 - **Extra · split** (a DJ fee, an eBay sale) — added to your salary and split by the same
   percentages, so every line grows.
 
-Each source remembers its choice, so the chip logs it the same way next time. Tap **+ €… money in**
+Each source remembers its choice, so the chip logs it the same way next time.
+
+**The flat** (a second place you sub-let): its bills and the sub-tenant's rent are tracked apart
+from Needs and Wants, so rent that arrives late (or a bill paid early) never makes your own budget
+look over. Mark an expense **🏠 Flat** on the details screen (one **Save to flat**, no Need / Want),
+log the rent as **Money in → 🏠 Flat**, and set the flat's recurring bills to **Flat** in the Bills
+editor (tap Need → Want → Flat). Home's **Flat** card shows the running balance since you started
+— money in minus bills, across months — which should sit at **Even ✓**: "€700 to get back" means
+you've paid ahead and the rent hasn't come in yet. Tap it for the flat's transactions. Tap **+ €… money in**
 on Home to list what came in, and edit or delete it from there. If someone
 pays you back for part of a specific expense, mark that expense **Reimbursable** instead.
 
