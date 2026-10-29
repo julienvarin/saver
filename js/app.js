@@ -184,6 +184,7 @@ const entry = {
   catsTouched: false, // categories picked by hand: don't overwrite them from a known title
   returnTo: null, // tab screen the entry started from: go back there once saved
   extra: false, // money in: extra (split like the salary) rather than covering bills
+  flat: false, // the sub-let flat's: its own balance, outside needs / wants
   inbox: null, // the card payment being confirmed (removed from the inbox once saved)
 };
 
@@ -196,6 +197,7 @@ function resetEntry() {
   entry.reimbursed = false;
   entry.reimbAmount = "";
   entry.extra = false;
+  entry.flat = false;
   entry.date = toDateInput(new Date());
   entry.createdAt = null;
   entry.editId = null;
@@ -281,6 +283,7 @@ function updateKindUI(hint) {
 function updateFlagsUI() {
   const r = $("#reimb-toggle");
   if (r) r.classList.toggle("active", !!entry.reimbursable);
+  updateFlatUI();
   const rec = $("#received-toggle");
   if (rec) {
     rec.hidden = !entry.reimbursable;      // only relevant when reimbursable
@@ -312,14 +315,28 @@ function toggleReimb() {
   haptic();
   updateFlagsUI();
 }
-// Money in: "Covers bills" (sub-tenant: comes off needs) or "Extra" (DJ fee,
-// eBay: split like the salary). Stored as the "Extra" category on the row.
+// Money in: "Flat" (the sub-tenant's rent: the flat's balance), "Covers bills"
+// (comes off needs) or "Extra" (DJ fee, eBay: split like the salary). Extra is
+// stored as the "Extra" category on the row, flat as the flat column.
 const EXTRA = "Extra";
 function isExtra(r) { return (r.categories || []).includes(EXTRA); }
+function incomeKind() { return entry.flat ? "flat" : entry.extra ? "extra" : "bills"; }
 function updateIncomeUI() {
-  $$("#in-kind .pill").forEach((b) => b.classList.toggle("active", (b.dataset.in === "extra") === entry.extra));
+  $$("#in-kind .pill").forEach((b) => b.classList.toggle("active", b.dataset.in === incomeKind()));
 }
-function setExtra(on) { entry.extra = on; haptic(); updateIncomeUI(); }
+function setIncomeKind(k) { entry.extra = k === "extra"; entry.flat = k === "flat"; haptic(); updateIncomeUI(); }
+
+// An expense for the flat skips Need / Want: one Save puts it on the flat's balance.
+function updateFlatUI() {
+  const t = $("#flat-toggle");
+  if (!t) return;
+  const income = entry.kind === "income";
+  t.classList.toggle("active", entry.flat);
+  $$("#det-body .kind-grid, #det-body .kind-row").forEach((n) => (n.hidden = entry.flat && !income));
+  $("#det-save").hidden = !income && !entry.flat;
+  $("#det-save").textContent = !income && entry.flat ? "Save to flat" : "Save";
+}
+function toggleFlat() { entry.flat = !entry.flat; haptic(); updateFlatUI(); }
 function toggleReceived() { entry.reimbursed = !entry.reimbursed; haptic(); updateFlagsUI(); }
 
 // Details step: title, recent entries, categories, flags, need / want.
@@ -327,7 +344,6 @@ function toggleReceived() { entry.reimbursed = !entry.reimbursed; haptic(); upda
 function enterDetails() {
   const income = entry.kind === "income";
   $("#det-body").hidden = income;
-  $("#det-save").hidden = !income;
   $("#in-kind").hidden = !income;
   updateIncomeUI();
   $("#title-input").placeholder = income ? "From who / what?" : "What was it?";
@@ -485,7 +501,8 @@ function rememberCats(cats) {
 // Learn the categories and remembered titles from your expenses, most used first.
 async function refreshSavedCats() {
   const query = (cols) => sb.from("expenses").select(cols).order("created_at", { ascending: false }).limit(2000);
-  let { data, error } = await query("title, amount, categories, kind, created_at, merchant");
+  let { data, error } = await query("title, amount, categories, kind, created_at, merchant, flat");
+  if (error) ({ data, error } = await query("title, amount, categories, kind, created_at, merchant"));
   if (error) ({ data, error } = await query("title, amount, categories, kind, created_at")); // old schema
   if (error || !data) return;
   data.forEach((r) => { r.categories = canonCats(r.categories); });
@@ -514,7 +531,7 @@ function learnTitles(rows) {
     if (!key || !r.kind) return;
     const k = next.get(key);
     if (k) k.count++;
-    else next.set(key, { key, title: r.title.trim(), amount: Number(r.amount) || 0, categories: r.categories || [], kind: r.kind, count: 1 });
+    else next.set(key, { key, title: r.title.trim(), amount: Number(r.amount) || 0, categories: r.categories || [], kind: r.kind, flat: !!r.flat, count: 1 });
   });
   known = next;
   byMerchant = new Map();
@@ -527,7 +544,7 @@ function rememberTitle(rec) {
   if (!key || !rec.kind) return;
   const old = known.get(key);
   known.delete(key);
-  known = new Map([[key, { key, title: rec.title.trim(), amount: Number(rec.amount) || 0, categories: rec.categories || [], kind: rec.kind, count: (old ? old.count : 0) + 1 }]].concat(Array.from(known)));
+  known = new Map([[key, { key, title: rec.title.trim(), amount: Number(rec.amount) || 0, categories: rec.categories || [], kind: rec.kind, flat: !!rec.flat, count: (old ? old.count : 0) + 1 }]].concat(Array.from(known)));
 }
 
 function renderSuggest() {
@@ -543,7 +560,7 @@ function renderSuggest() {
   list.slice(0, 6).forEach((k) => {
     const b = el("button", "sg-chip");
     b.type = "button";
-    b.appendChild(el("span", "dot " + (k.kind !== "income" ? k.kind : isExtra(k) ? "save" : "need")));
+    b.appendChild(el("span", "dot " + (k.flat ? "flat" : k.kind !== "income" ? k.kind : isExtra(k) ? "save" : "need")));
     b.appendChild(el("span", "sg-title", k.title));
     if (income) b.appendChild(el("span", "sg-cats", "+" + formatEuro(k.amount)));
     else if (k.categories.length) b.appendChild(el("span", "sg-cats", k.categories.join(" · ")));
@@ -552,6 +569,7 @@ function renderSuggest() {
       entry.title = k.title;
       entry.categories = k.categories.slice();
       entry.kind = k.kind;
+      entry.flat = k.flat;
       if (income) entry.extra = isExtra(k);
       saveExpense();
     });
@@ -564,8 +582,9 @@ function onTitleInput(value) {
   entry.title = value;
   renderSuggest();
   const k = known.get(norm(value));
-  if (k && entry.kind === "income" && k.kind === "income") { entry.extra = isExtra(k); updateIncomeUI(); }
+  if (k && entry.kind === "income" && k.kind === "income") { entry.extra = isExtra(k); entry.flat = k.flat; updateIncomeUI(); }
   if (!k || entry.kind === "income") { updateKindUI(); return; }
+  if (k.flat !== entry.flat) { entry.flat = k.flat; updateFlatUI(); }
   if (!entry.catsTouched) {
     resetChips();
     entry.categories = [];
@@ -625,6 +644,8 @@ async function saveExpense() {
     reimbursable: entry.reimbursable,
     reimbursed: entry.reimbursable ? entry.reimbursed : false,
   };
+  // only sent when it matters, so saving still works before the flat column exists
+  if (entry.flat || (entry.editRow && entry.editRow.flat)) record.flat = entry.flat;
 
   if (entry.reimbursable) {
     const ra = parseReimbAmount();
@@ -652,7 +673,7 @@ async function saveExpense() {
   const { data, error } = await q;
   if (error) {
     console.error(error);
-    const oldSchema = /kind_check/.test(error.message || "");
+    const oldSchema = /kind_check|flat/.test(error.message || "");
     toast(oldSchema ? "Re-run supabase/schema.sql in Supabase to enable this" : "Couldn't save: " + error.message, true);
     if (entry.quick) showStep("step-amount"); else enterDetails();
     return;
@@ -726,6 +747,8 @@ async function deleteEntry() {
 function isSaving(r) { return r.kind === "save"; }
 // Money in (sub-tenant, side job…): covers bills (comes off needs) or extra (split like the salary).
 function isIncome(r) { return r.kind === "income"; }
+// The sub-let flat's bills and rent: kept on the flat's own balance, never in the budget.
+function isFlat(r) { return !!r.flat; }
 
 /* ---- periods: a budget month runs from one payday to the next ---- */
 const DAY = 86400000;
@@ -871,6 +894,7 @@ function openEdit(r) {
   entry.createdAt = r.created_at;
   entry.date = toDateInput(new Date(r.created_at));
   entry.catsTouched = true;
+  entry.flat = !!r.flat;
   if (isIncome(r)) entry.extra = isExtra(r);
   else applyCategories(r.categories || []);
   renderAmount();
@@ -924,7 +948,7 @@ function makeBadge(text, cls) {
 function renderItem(r) {
   const row = el("button", "hist-item");
   row.type = "button";
-  row.appendChild(el("span", "hi-kind " + (r.kind || "")));
+  row.appendChild(el("span", "hi-kind " + (r.kind || "") + (isFlat(r) ? " flat" : "")));
 
   const main = el("div", "hi-main");
   main.appendChild(el("div", "hi-title", r.title || "Untitled"));
@@ -950,7 +974,8 @@ function renderItem(r) {
       sub.appendChild(got);
     }
   }
-  sub.appendChild(el("span", "cats", isIncome(r) ? (isExtra(r) ? "Money in · Extra" : "Money in · Covers bills") : (r.categories || []).join(" · ") || "—"));
+  if (isFlat(r)) sub.appendChild(makeBadge("🏠 Flat", "flat"));
+  sub.appendChild(el("span", "cats", isIncome(r) ? (isFlat(r) ? "Money in" : isExtra(r) ? "Money in · Extra" : "Money in · Covers bills") : (r.categories || []).join(" · ") || "—"));
   main.appendChild(sub);
   row.appendChild(main);
   row.addEventListener("click", () => openEdit(r));
@@ -980,9 +1005,11 @@ const KIND_LABEL = { need: "Needs", want: "Wants", saving: "Saved" };
 
 function matchesFilter(r) {
   if (!statsFilter.type) return true;
+  if (statsFilter.type === "flat") return isFlat(r);
+  if (statsFilter.type === "pending") return pendingReimb(r) > 0;
+  if (isFlat(r)) return false;
   if (statsFilter.type === "kind") return statsFilter.value === "saving" ? isSaving(r) : r.kind === statsFilter.value;
   if (statsFilter.type === "category") return !isIncome(r) && (r.categories || []).includes(statsFilter.value);
-  if (statsFilter.type === "pending") return pendingReimb(r) > 0;
   if (statsFilter.type === "income") return isIncome(r);
   return true;
 }
@@ -1000,7 +1027,7 @@ function setFilter(type, value, scroll) {
 // filter / period: optional, e.g. from Home (a budget opens its transactions).
 // toTx: scroll straight to the transactions.
 async function openHistory(filter, period, toTx) {
-  if (!budgetLoaded) await loadBudget();
+  await loadBudget();
   statsPeriod = period || periodFor(new Date());
   statsFilter = filter || { type: null, value: null };
   showScreen("screen-history");
@@ -1047,6 +1074,7 @@ function renderInsights() {
   renderInsSummary(f);
   renderPace(f);
   renderSplit(f);
+  renderInsFlat(f);
   renderCats();
   renderTrend();
   renderTxFilters();
@@ -1272,6 +1300,32 @@ function renderSplit(f) {
   wrap.appendChild(card);
 }
 
+// The flat this month: what came in and went out, outside the budget.
+function renderInsFlat(f) {
+  const wrap = $("#ins-flat");
+  wrap.innerHTML = "";
+  if (!f.flatIn && !f.flatOut) return;
+  const card = insCard("Flat", "Kept out of your budget");
+  const net = f.flatIn - f.flatOut;
+  const on = statsFilter.type === "flat";
+  [["need", "Money in", "+" + euro0(f.flatIn)], ["want", "Bills paid", euro0(f.flatOut)]].forEach(([k, label, v]) => {
+    const row = el("button", "split-row" + (on ? " active" : ""));
+    row.type = "button";
+    row.addEventListener("click", () => setFilter("flat", true, true));
+    const name = el("span", "split-name");
+    name.appendChild(el("span", "dot " + k));
+    name.appendChild(document.createTextNode(label));
+    row.appendChild(name);
+    row.appendChild(el("span", "split-pct"));
+    row.appendChild(el("b", "split-amt", v));
+    card.appendChild(row);
+  });
+  card.appendChild(el("div", "ins-note", Math.abs(net) < 1 ? "Even this month."
+    : net < 0 ? euro0(-net) + " more went out than came in this month."
+    : euro0(net) + " more came in than went out this month."));
+  wrap.appendChild(card);
+}
+
 // By category, wants or needs, with the change since last month.
 function renderCats() {
   const wrap = $("#ins-cats");
@@ -1279,7 +1333,7 @@ function renderCats() {
   const sum = (rows) => {
     const by = {};
     rows.forEach((r) => {
-      if (r.kind !== catKind) return;
+      if (r.kind !== catKind || isFlat(r)) return;
       const a = netAmount(r);
       if (a <= 0) return;
       ((r.categories && r.categories.length) ? r.categories : ["Uncategorised"]).forEach((c) => { by[c] = (by[c] || 0) + a; });
@@ -1386,14 +1440,17 @@ function renderTxFilters() {
   chip("Needs", "kind", "need");
   chip("Wants", "kind", "want");
   chip("Saved", "kind", "saving");
-  if (statsRows.some(isIncome)) chip("Money in", "income", true);
+  if (statsRows.some((r) => isIncome(r) && !isFlat(r))) chip("Money in", "income", true);
+  if (statsRows.some(isFlat)) chip("Flat", "flat", true, "flat");
   const owed = statsRows.reduce((s, r) => s + pendingReimb(r), 0);
   if (owed > 0) chip("Owed to you · " + euro0(owed), "pending", true, "owed");
 
   const shown = statsRows.filter(matchesFilter);
   const total = shown.reduce((s, r) => s + (statsFilter.type === "pending" ? pendingReimb(r)
+    : statsFilter.type === "flat" ? (isIncome(r) ? Number(r.amount) || 0 : -netAmount(r))
     : isIncome(r) ? (statsFilter.type === "income" ? Number(r.amount) || 0 : 0) : netAmount(r)), 0);
-  $("#tx-sum").textContent = !shown.length ? "" : statsFilter.type ? shown.length + " · " + euro0(total)
+  const sumText = statsFilter.type === "flat" ? (total >= 0 ? "+" : "") + euro0(total) : euro0(total);
+  $("#tx-sum").textContent = !shown.length ? "" : statsFilter.type ? shown.length + " · " + sumText
     : shown.length + " entr" + (shown.length > 1 ? "ies" : "y");
 }
 
@@ -1515,10 +1572,11 @@ function budgetFigures(rows, period) {
   const dim = Math.max(1, daysBetween(period.start, period.estEnd)); // period length (estimated while open)
   const late = current && today > dim;                     // next salary expected but not logged yet
 
-  let needSpent = 0, wantSpent = 0, saved = 0, covers = 0, bonus = 0;
+  let needSpent = 0, wantSpent = 0, saved = 0, covers = 0, bonus = 0, flatIn = 0, flatOut = 0;
   rows.forEach((r) => {
     const a = netAmount(r);
-    if (isIncome(r)) { if (isExtra(r)) bonus += Number(r.amount) || 0; else covers += Number(r.amount) || 0; }
+    if (isFlat(r)) { if (isIncome(r)) flatIn += Number(r.amount) || 0; else flatOut += a; }
+    else if (isIncome(r)) { if (isExtra(r)) bonus += Number(r.amount) || 0; else covers += Number(r.amount) || 0; }
     else if (r.kind === "need") needSpent += a;
     else if (r.kind === "save") saved += a;
     else wantSpent += a; // wants (and anything untagged)
@@ -1534,19 +1592,22 @@ function budgetFigures(rows, period) {
   const saveTarget = salary == null ? 0 : base * budget.save_pct / 100;
   const needMine = Math.max(0, needSpent - covers);
 
-  // bills: paid this period when a need / want with the same name exists; due on
-  // the first occurrence of their day on/after payday. Unpaid ones are reserved
-  // from their own bucket (needs, or wants for subscriptions).
-  const bills = (budget.bills || []).map((b) => ({
-    name: b.name, amount: Number(b.amount) || 0, due: dueDate(b.day, period.start), kind: billKind(b),
-    paid: rows.some((r) => (r.kind === "need" || r.kind === "want") && matchesName(r, b.name)),
-  }));
+  // bills: paid this period when a need / want (a flat expense, for the flat's
+  // bills) with the same name exists; due on the first occurrence of their day
+  // on/after payday. Unpaid ones are reserved from their own bucket (needs, or
+  // wants for subscriptions); the flat's come off the flat's balance instead.
+  const bills = (budget.bills || []).map((b) => {
+    const kind = billKind(b);
+    return { name: b.name, amount: Number(b.amount) || 0, due: dueDate(b.day, period.start), kind,
+      paid: rows.some((r) => (r.kind === "need" || r.kind === "want") && isFlat(r) === (kind === "flat") && matchesName(r, b.name)) };
+  });
   const unpaid = (kind) => current ? bills.filter((b) => b.kind === kind && !b.paid).reduce((s, b) => s + b.amount, 0) : 0;
   const upcoming = unpaid("need");
   const upcomingWant = unpaid("want");
+  const upcomingFlat = unpaid("flat");
 
   return { salary, current, today, dim, late, needSpent, wantSpent, saved, covers, bonus, extra,
-    needBudget, wantBudget, saveTarget, needMine, bills, upcoming, upcomingWant };
+    needBudget, wantBudget, saveTarget, needMine, bills, upcoming, upcomingWant, flatIn, flatOut, upcomingFlat };
 }
 
 // Bills by due date, the ones without a day last.
@@ -1597,8 +1658,8 @@ function dueLabel(due, today, fallback) {
     : inDays === 0 ? "Due today" : inDays === 1 ? "Due tomorrow" : "Due in " + inDays + " days";
 }
 
-// Bills are needs unless marked as a want (subscriptions).
-function billKind(b) { return b.kind === "want" ? "want" : "need"; }
+// Bills are needs unless marked as a want (subscriptions) or the flat's.
+function billKind(b) { return b.kind === "want" || b.kind === "flat" ? b.kind : "need"; }
 
 // One tap: log a planned bill as paid today (edit it from the list if it differed).
 async function logBill(b) {
@@ -1606,10 +1667,9 @@ async function logBill(b) {
   const { data: { user } } = await sb.auth.getUser();
   if (!user) { showScreen("screen-auth"); return; }
   const kind = billKind(b);
-  const { data, error } = await sb.from("expenses").insert({
-    user_id: user.id, amount: b.amount, title: b.name,
-    categories: ["Bills"], kind,
-  }).select();
+  const rec = { user_id: user.id, amount: b.amount, title: b.name, categories: ["Bills"], kind: kind === "flat" ? "need" : kind };
+  if (kind === "flat") rec.flat = true;
+  const { data, error } = await sb.from("expenses").insert(rec).select();
   if (error) { toast(error.message, true); return; }
   const row = data && data[0];
   toast(b.name + " paid · " + euro0(b.amount), false, row ? { label: "Undo", fn: () => undoInsert(row.id) } : null);
@@ -1619,6 +1679,15 @@ async function logBill(b) {
 // Money in saved from the details step: ask for the amount first if it's missing.
 function saveIncome() {
   if (!entry.amount) { toast("Enter an amount", true); showStep("step-amount"); return; }
+  saveExpense();
+}
+
+// The details step's Save: money in, or an expense for the flat (no Need / Want
+// to pick; it's stored as a need).
+function saveDetails() {
+  if (entry.kind === "income") { saveIncome(); return; }
+  if (!$("#cat-custom-wrap").hidden) addCustomCategory($("#cat-custom").value);
+  if (entry.kind !== "want" && entry.kind !== "save") entry.kind = "need";
   saveExpense();
 }
 
@@ -1986,13 +2055,56 @@ async function openHome() {
 async function loadHome() {
   const seq = ++homeSeq;
   renderHomeHead();
-  if (!budgetLoaded) await loadBudget();
+  // read fresh every time: a salary or bill saved on another device (or while
+  // the app sat open in the background) changes the month
+  await loadBudget();
   const period = periodFor(new Date());
   const prev = periodFor(addDays(period.start, -1));
-  const [cur, old] = await Promise.all([fetchRows(period), fetchRows(prev), loadInbox()]);
+  const [cur, old, , flat] = await Promise.all([fetchRows(period), fetchRows(prev), loadInbox(), flatBalance()]);
   if (seq !== homeSeq) return;
   if (cur.error) { toast(cur.error.message, true); return; }
-  renderHome(period, cur.data, old.error ? null : old.data, prev);
+  renderHome(period, cur.data, old.error ? null : old.data, prev, flat);
+}
+
+// The flat's balance since you started tracking it: rent in minus its bills.
+// It's the running total that should sit at zero, whichever month the money
+// moves in. Null without the flat column (old schema).
+async function flatBalance() {
+  const { data, error } = await sb.from("expenses").select("amount, kind, reimbursable, reimb_amount").eq("flat", true);
+  if (error) return null;
+  return (data || []).reduce((s, r) => s + (isIncome(r) ? Number(r.amount) || 0 : -netAmount(r)), 0);
+}
+
+// "Even ✓", "€850 to get back" (you've paid ahead for the flat) or "€40 ahead".
+function flatStatus(balance) {
+  if (Math.abs(balance) < 1) return ["Even ✓", "good"];
+  return balance < 0 ? [euro0(-balance) + " to get back", "warn"] : [euro0(balance) + " ahead", "good"];
+}
+
+// Home's flat card: the running balance, and this month's money in and out.
+function renderHomeFlat(period, f, balance) {
+  const wrap = $("#home-flat");
+  wrap.innerHTML = "";
+  const any = f.flatIn || f.flatOut || f.bills.some((b) => b.kind === "flat") || (balance != null && Math.abs(balance) >= 1);
+  $("#home-flat-wrap").hidden = !any;
+  if (!any) return;
+  const row = el("button", "hb-row");
+  row.type = "button";
+  row.addEventListener("click", () => openHistory({ type: "flat", value: true }, period, true));
+  const top = el("div", "hb-top");
+  top.appendChild(el("span", "hb-ico flat", "🏠"));
+  const main = el("div", "hb-main");
+  main.appendChild(el("div", "hb-name", "Flat"));
+  main.appendChild(el("div", "hb-sub", "+" + euro0(f.flatIn) + " in · " + euro0(f.flatOut) + " out this month"));
+  top.appendChild(main);
+  const [status, cls] = flatStatus(balance || 0);
+  top.appendChild(el("div", "hb-right " + cls, status));
+  row.appendChild(top);
+  const notes = [];
+  if (f.upcomingFlat > 0) notes.push(euro0(f.upcomingFlat) + " of flat bills still to pay");
+  notes.push("Kept out of your needs and wants");
+  row.appendChild(el("div", "hb-note", notes.join(" · ")));
+  wrap.appendChild(row);
 }
 
 function renderHomeHead() {
@@ -2007,7 +2119,7 @@ function renderHomeHead() {
 function spendOf(rows, until) {
   let need = 0, want = 0, covers = 0;
   rows.forEach((r) => {
-    if (until && new Date(r.created_at) >= until) return;
+    if ((until && new Date(r.created_at) >= until) || isFlat(r)) return;
     if (isIncome(r)) { if (!isExtra(r)) covers += Number(r.amount) || 0; }
     else if (r.kind === "need") need += netAmount(r);
     else if (r.kind !== "save") want += netAmount(r);
@@ -2138,7 +2250,8 @@ function homeAlerts(period, rows, f) {
   const todayDate = startOfDay(new Date());
   const pid = "@" + toDateInput(period.start);
   if (f.late) out.push({ id: "late" + pid, icon: "📅", title: "Payday was expected",
-    body: "Log your salary to start a new budget month.", fn: startSalary });
+    body: "No salary since " + period.start.toLocaleDateString(undefined, { day: "numeric", month: "short" }) +
+      ". Log it with + → Salary (or in Settings) to start a new budget month.", fn: startSalary });
   const unpaid = byDue(f.bills.filter((b) => !b.paid && b.due));
   unpaid.filter((b) => b.due < todayDate).forEach((b) => out.push({ id: "overdue-" + norm(b.name) + pid, icon: "🧾",
     title: b.name + " is overdue", body: dueLabel(b.due, todayDate, "") + " · " + euro0(b.amount) + ". Mark it paid once it's gone out.", fn: openBills }));
@@ -2151,7 +2264,7 @@ function homeAlerts(period, rows, f) {
       if (used > 0.25 && used > (f.today / f.dim) * 1.15) {
         const byCat = {};
         rows.forEach((r) => {
-          if (r.kind !== "want") return;
+          if (r.kind !== "want" || isFlat(r)) return;
           (r.categories.length ? r.categories : ["Uncategorised"]).forEach((c) => { byCat[c] = (byCat[c] || 0) + netAmount(r); });
         });
         const top = Object.keys(byCat).sort((a, b) => byCat[b] - byCat[a])[0];
@@ -2166,7 +2279,7 @@ function homeAlerts(period, rows, f) {
   }
   unpaid.filter((b) => b.due >= todayDate && daysBetween(todayDate, b.due) <= 3).forEach((b) => out.push({
     id: "soon-" + norm(b.name) + pid, icon: "🗓️", title: b.name + " · " + euro0(b.amount),
-    body: dueLabel(b.due, todayDate, "") + ". It's already kept aside from your budget.", fn: openBills }));
+    body: dueLabel(b.due, todayDate, "") + (b.kind === "flat" ? ". It's the flat's, so it's not in your budget." : ". It's already kept aside from your budget."), fn: openBills }));
   const pending = rows.reduce((s, r) => s + pendingReimb(r), 0);
   if (pending > 0) out.push({ id: "pending-" + Math.round(pending) + pid, icon: "↩︎", title: euro0(pending) + " still owed to you",
     body: "From reimbursable expenses. Tap “got it?” on each one once the money's back.",
@@ -2299,7 +2412,7 @@ function renderHomeBudgets(period, rows, f) {
     // no lines yet: what went where this month
     let need = 0, want = 0, save = 0;
     rows.forEach((r) => {
-      if (isIncome(r)) return;
+      if (isIncome(r) || isFlat(r)) return;
       if (r.kind === "need") need += netAmount(r); else if (r.kind === "save") save += netAmount(r); else want += netAmount(r);
     });
     const max = Math.max(need, want, save, 1);
@@ -2320,7 +2433,7 @@ function renderHomeBudgets(period, rows, f) {
   }
 }
 
-function renderHome(period, rows, prevRows, prev) {
+function renderHome(period, rows, prevRows, prev, flat) {
   homeRows = rows;
   const f = budgetFigures(rows, period);
   renderHero(period, rows, prevRows, prev, f);
@@ -2328,6 +2441,7 @@ function renderHome(period, rows, prevRows, prev) {
   renderBell();
   renderTip();
   renderHomeBudgets(period, rows, f);
+  renderHomeFlat(period, f, flat);
 
   // the next bills to pay
   const toPay = byDue(f.bills.filter((b) => !b.paid));
@@ -2359,7 +2473,7 @@ async function openBills() {
 }
 
 async function loadBills() {
-  if (!budgetLoaded) await loadBudget();
+  if (!billsEditing) await loadBudget();
   renderBillsMode();
   if (billsEditing) return;
   const period = periodFor(new Date());
@@ -2384,27 +2498,38 @@ async function loadBills() {
     return;
   }
   const todayDate = startOfDay(new Date());
-  const toPay = byDue(f.bills.filter((b) => !b.paid));
-  const total = f.bills.reduce((s, b) => s + b.amount, 0);
+  // the flat's bills get their own section: they don't come out of your budget
+  const mine = f.bills.filter((b) => b.kind !== "flat");
+  const flat = byDue(f.bills.filter((b) => b.kind === "flat"));
+  const toPay = byDue(mine.filter((b) => !b.paid));
+  const total = mine.reduce((s, b) => s + b.amount, 0);
   const left = toPay.reduce((s, b) => s + b.amount, 0);
-  const card = el("div", "bcard bills-card");
-  card.appendChild(el("div", "ins-label", toPay.length ? "Still to pay this month" : "All paid this month"));
-  const big = el("div", "ins-big");
-  big.appendChild(bigEuro(left));
-  card.appendChild(big);
-  card.appendChild(el("div", "ins-sub", (f.bills.length - toPay.length) + " of " + f.bills.length + " paid · " + euro0(total) + " a month"));
-  const b = bar("need", total - left, 0, total);
-  b.classList.add("bills-bar");
-  card.appendChild(b);
-  sum.appendChild(card);
   const section = (label, bills) => {
     if (!bills.length) return;
     list.appendChild(el("div", "section-label", label));
     bills.forEach((x) => list.appendChild(billRow(x)));
   };
-  section("Overdue", toPay.filter((x) => x.due && x.due < todayDate));
-  section("Coming up", toPay.filter((x) => !x.due || x.due >= todayDate));
-  section("Paid", f.bills.filter((x) => x.paid));
+  if (mine.length) {
+    const card = el("div", "bcard bills-card");
+    card.appendChild(el("div", "ins-label", toPay.length ? "Still to pay this month" : "All paid this month"));
+    const big = el("div", "ins-big");
+    big.appendChild(bigEuro(left));
+    card.appendChild(big);
+    card.appendChild(el("div", "ins-sub", (mine.length - toPay.length) + " of " + mine.length + " paid · " + euro0(total) + " a month"));
+    const b = bar("need", total - left, 0, total);
+    b.classList.add("bills-bar");
+    card.appendChild(b);
+    sum.appendChild(card);
+    section("Overdue", toPay.filter((x) => x.due && x.due < todayDate));
+    section("Coming up", toPay.filter((x) => !x.due || x.due >= todayDate));
+    section("Paid", mine.filter((x) => x.paid));
+  }
+  if (flat.length) {
+    const flatLeft = flat.filter((x) => !x.paid).reduce((s, x) => s + x.amount, 0);
+    list.appendChild(el("div", "section-label", "Flat · " + (flatLeft ? euro0(flatLeft) + " still to pay" : "all paid")));
+    list.appendChild(el("p", "hint small-hint", "Paid from the flat's balance, not your budget."));
+    flat.forEach((x) => list.appendChild(billRow(x)));
+  }
 }
 
 function renderBillsMode() {
@@ -2421,9 +2546,11 @@ function addBillRow(b) {
   row.appendChild(inputCell("er-day", b.day, "Day", "numeric", "Day of the month"));
   const kind = el("button", "er-kind");
   kind.type = "button";
-  const setKind = (k) => { row.dataset.kind = k; kind.textContent = k === "want" ? "Want" : "Need"; kind.className = "er-kind " + k; };
+  const LABEL = { need: "Need", want: "Want", flat: "Flat" };
+  const NEXT = { need: "want", want: "flat", flat: "need" };
+  const setKind = (k) => { row.dataset.kind = k; kind.textContent = LABEL[k]; kind.className = "er-kind " + k; };
   setKind(billKind(b));
-  kind.addEventListener("click", () => { haptic(); setKind(row.dataset.kind === "want" ? "need" : "want"); });
+  kind.addEventListener("click", () => { haptic(); setKind(NEXT[row.dataset.kind]); });
   row.appendChild(kind);
   row.appendChild(removeBtn(row));
   $("#bs-bills").appendChild(row);
@@ -2453,7 +2580,7 @@ async function saveBills() {
     const amount = parseMoney(row.querySelector(".er-amt").value);
     if (amount == null) { toast("Invalid amount for " + name, true); return; }
     const day = parseInt(row.querySelector(".er-day").value, 10);
-    bills.push({ name, amount, day: day >= 1 && day <= 31 ? day : null, kind: row.dataset.kind === "want" ? "want" : "need" });
+    bills.push({ name, amount, day: day >= 1 && day <= 31 ? day : null, kind: billKind({ kind: row.dataset.kind }) });
   }
   if (!(await saveBudget({ bills }))) return;
   haptic();
@@ -2654,8 +2781,8 @@ function wire() {
     e.preventDefault();
     if (entry.kind === "income") saveIncome(); else e.target.blur();
   });
-  $("#det-save").addEventListener("click", saveIncome);
-  $$("#in-kind .pill").forEach((b) => b.addEventListener("click", () => setExtra(b.dataset.in === "extra")));
+  $("#det-save").addEventListener("click", saveDetails);
+  $$("#in-kind .pill").forEach((b) => b.addEventListener("click", () => setIncomeKind(b.dataset.in)));
   $("#cat-custom").addEventListener("keydown", (e) => {
     if (e.key === "Enter") { e.preventDefault(); addCustomCategory(e.target.value); }
   });
@@ -2665,6 +2792,7 @@ function wire() {
 
   // flags + kind (tapping a kind saves)
   $("#reimb-toggle").addEventListener("click", toggleReimb);
+  $("#flat-toggle").addEventListener("click", toggleFlat);
   $("#received-toggle").addEventListener("click", toggleReceived);
   $("#reimb-amt").addEventListener("input", (e) => (entry.reimbAmount = e.target.value));
   $$(".kind-btn").forEach((b) => b.addEventListener("click", () => {

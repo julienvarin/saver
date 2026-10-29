@@ -14,6 +14,8 @@
   --need: #10b981;
   --want: #f59e0b;
   --save: #3b82f6;
+  --flat: #ec4899;
+  --flat-text: #be185d;
   --danger: #ef4444;
   --need-text: #059669;
   --want-text: #b45309;
@@ -45,6 +47,8 @@
     --need: #34d399;
     --want: #fbbf24;
     --save: #60a5fa;
+    --flat: #f472b6;
+    --flat-text: #f472b6;
     --danger: #f87171;
     --need-text: #34d399;
     --want-text: #fbbf24;
@@ -361,6 +365,8 @@ body {
 .hi-kind.need { background: var(--need); }
 .hi-kind.want { background: var(--want); }
 .hi-kind.save { background: var(--save); }
+.hi-kind.flat { background: var(--flat); }
+.hi-kind.income.flat { background: transparent; border-color: var(--flat); }
 .hist-item:active { transform: scale(.99); }
 .hi-main { flex: 1; min-width: 0; }
 .hi-title { font-size: 16px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -370,6 +376,7 @@ body {
 .badge.reimb-pending { background: rgba(251, 191, 36, .18); color: var(--want-text); }
 .badge[role=button] { cursor: pointer; }
 .badge.reimb-done { background: rgba(52, 211, 153, .18); color: var(--need-text); }
+.badge.flat { background: rgba(236, 72, 153, .14); color: var(--flat-text); }
 .hi-amount { font-size: 17px; font-weight: 600; flex: 0 0 auto; }
 .hi-amount.reimb { opacity: .4; text-decoration: line-through; }
 .hi-amount.income { color: var(--need-text); }
@@ -470,16 +477,17 @@ body {
 }
 .edit-row input { font-size: 16px; }
 .edit-row input::placeholder, .split-cell input::placeholder { color: var(--placeholder); }
-.edit-row .er-name, .edit-row .er-date { flex: 1; }
+.edit-row .er-name, .edit-row .er-date { flex: 1; min-width: 0; }
 .edit-row .er-date { font-size: 16px; font-family: inherit; }
-.edit-row .er-amt { flex: 0 0 72px; text-align: right; }
+.edit-row .er-amt { flex: 0 0 56px; min-width: 0; text-align: right; }
 .edit-row .er-amt.wide { flex-basis: 96px; }
-.edit-row .er-day { flex: 0 0 44px; text-align: right; }
+.edit-row .er-day { flex: 0 0 36px; min-width: 0; text-align: right; }
 .er-kind {
   flex: 0 0 auto; border: none; border-radius: 10px; padding: 7px 9px; cursor: pointer;
   font-size: 13px; font-weight: 700; background: rgba(52, 211, 153, .18); color: var(--need-text);
 }
 .er-kind.want { background: rgba(251, 191, 36, .18); color: var(--want-text); }
+.er-kind.flat { background: rgba(236, 72, 153, .14); color: var(--flat-text); }
 .add-row { margin-top: 4px; align-self: flex-start; }
 .bs-save { margin-top: 28px; }
 
@@ -617,6 +625,9 @@ body.tabbed .toast { bottom: calc(104px + var(--safe-bottom)); }
 .hb-ico.need { background: rgba(16, 185, 129, .14); color: var(--need-text); }
 .hb-ico.want { background: rgba(245, 158, 11, .16); color: var(--want-text); }
 .hb-ico.save { background: rgba(59, 130, 246, .14); color: var(--save); }
+.hb-ico.flat { background: rgba(236, 72, 153, .14); }
+.hb-right.warn { color: var(--flat-text); }
+.hb-note { color: var(--muted); font-size: 13px; }
 .hb-main { flex: 1; min-width: 0; }
 .hb-name { font-size: 16px; font-weight: 700; }
 .hb-sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
@@ -770,6 +781,7 @@ button.ins-tile .ht-label::after { content: " ›"; }
 }
 .fchip.active { background: var(--text); color: var(--bg); border-color: var(--text); }
 .fchip.owed:not(.active) { color: var(--want-text); border-color: rgba(251, 191, 36, .5); }
+.fchip.flat:not(.active) { color: var(--flat-text); border-color: rgba(236, 72, 153, .45); }
 .hist-list-inner .hist-empty.card { margin-top: 8px; }
 
 /* ---- bills ---- */
@@ -835,3 +847,11 @@ button.set-row { cursor: pointer; font-weight: 600; }
 .cp-note { color: var(--muted); font-size: 12px; margin-top: 3px; }
 .card-setup .small-hint { margin: 10px 0 6px; }
 .cs-renew { display: block; margin: 8px auto 0; font-size: 14px; color: var(--danger); }
+
+/* coloured kind dots (bills, suggestions, splits) */
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; display: inline-block; vertical-align: middle; margin-right: 6px; background: var(--muted); }
+.split-name .dot, .sg-chip .dot { margin-right: 0; }
+.dot.need { background: var(--need); }
+.dot.want { background: var(--want); }
+.dot.save { background: var(--save); }
+.dot.flat { background: var(--flat); }
