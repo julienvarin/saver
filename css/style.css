@@ -477,11 +477,11 @@ body {
 }
 .edit-row input { font-size: 16px; }
 .edit-row input::placeholder, .split-cell input::placeholder { color: var(--placeholder); }
-.edit-row .er-name, .edit-row .er-date { flex: 1; }
+.edit-row .er-name, .edit-row .er-date { flex: 1; min-width: 0; }
 .edit-row .er-date { font-size: 16px; font-family: inherit; }
-.edit-row .er-amt { flex: 0 0 72px; text-align: right; }
+.edit-row .er-amt { flex: 0 0 56px; min-width: 0; text-align: right; }
 .edit-row .er-amt.wide { flex-basis: 96px; }
-.edit-row .er-day { flex: 0 0 44px; text-align: right; }
+.edit-row .er-day { flex: 0 0 36px; min-width: 0; text-align: right; }
 .er-kind {
   flex: 0 0 auto; border: none; border-radius: 10px; padding: 7px 9px; cursor: pointer;
   font-size: 13px; font-weight: 700; background: rgba(52, 211, 153, .18); color: var(--need-text);
