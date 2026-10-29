@@ -30,6 +30,7 @@ const LS = {
   tipsHidden: "saver.tips_hidden",
   alertsSeen: "saver.alerts_seen",
   privacy: "saver.privacy",
+  homeHidden: "saver.home_hidden",
 };
 
 // Categories you've used, most used first. Learned from your saved expenses
@@ -1760,6 +1761,10 @@ function addSalaryRow(p, prepend) {
   return row;
 }
 
+function updateHomePref() {
+  $$("#pref-home button").forEach((b) => b.classList.toggle("active", homeHidden.indexOf(b.dataset.bucket) < 0));
+}
+
 function updateReimbPref() {
   $$("#pref-reimb button").forEach((b) => b.classList.toggle("active", !!b.dataset.full === reimbFull));
 }
@@ -1768,6 +1773,7 @@ async function openBudgetSettings() {
   showScreen("screen-budget");
   $("#screen-budget .hist-scroll").scrollTop = 0;
   updateReimbPref();
+  updateHomePref();
   sb.auth.getSession().then(({ data }) => {
     $("#acct-email").textContent = data && data.session && data.session.user ? data.session.user.email || "" : "";
   });
@@ -2424,9 +2430,18 @@ function needNote(f) {
   return notes.join(" · ");
 }
 
+// Budget cards hidden from Home in Settings ("want", "need", "save").
+let homeHidden = (() => {
+  try { const v = JSON.parse(localStorage.getItem(LS.homeHidden) || "[]"); return Array.isArray(v) ? v : []; }
+  catch (e) { return []; }
+})();
+
 function renderHomeBudgets(period, rows, f) {
   const wrap = $("#home-budgets");
   wrap.innerHTML = "";
+  const sec = wrap.previousElementSibling;
+  sec.hidden = homeHidden.length >= 3 && !f.extra;
+  const show = (kind, card) => { if (homeHidden.indexOf(kind) < 0) wrap.appendChild(card); };
   if (f.salary == null) {
     // no lines yet: what went where this month
     let need = 0, want = 0, save = 0;
@@ -2435,15 +2450,15 @@ function renderHomeBudgets(period, rows, f) {
       if (r.kind === "need") need += netAmount(r); else if (r.kind === "save") save += netAmount(r); else want += netAmount(r);
     });
     const max = Math.max(need, want, save, 1);
-    wrap.appendChild(homeBucket(period, "want", "Wants", "✦", want, null, { max }));
-    wrap.appendChild(homeBucket(period, "need", "Needs", "✓", need, null, { max }));
-    wrap.appendChild(homeBucket(period, "save", "Save", "◆", save, null, { max }));
+    show("want", homeBucket(period, "want", "Wants", "✦", want, null, { max }));
+    show("need", homeBucket(period, "need", "Needs", "✓", need, null, { max }));
+    show("save", homeBucket(period, "save", "Save", "◆", save, null, { max }));
     return;
   }
-  wrap.appendChild(homeBucket(period, "want", "Wants", "✦", f.wantSpent, f.wantBudget,
+  show("want", homeBucket(period, "want", "Wants", "✦", f.wantSpent, f.wantBudget,
     { reserved: f.upcomingWant, marker: (f.today / f.dim) * 100 }));
-  wrap.appendChild(homeBucket(period, "need", "Needs", "✓", f.needMine, f.needBudget, { reserved: f.upcoming, note: needNote(f) }));
-  wrap.appendChild(homeBucket(period, "save", "Save", "◆", f.saved, f.saveTarget));
+  show("need", homeBucket(period, "need", "Needs", "✓", f.needMine, f.needBudget, { reserved: f.upcoming, note: needNote(f) }));
+  show("save", homeBucket(period, "save", "Save", "◆", f.saved, f.saveTarget));
   if (f.extra) {
     const inBtn = el("button", "link hb-in", "+ " + euro0(f.extra) + " money in this month ›");
     inBtn.type = "button";
@@ -2875,6 +2890,13 @@ function wire() {
     try { localStorage.setItem(LS.reimbFull, reimbFull ? "1" : ""); } catch (e) {}
     haptic();
     updateReimbPref();
+  }));
+  $$("#pref-home button").forEach((b) => b.addEventListener("click", () => {
+    const k = b.dataset.bucket;
+    homeHidden = homeHidden.indexOf(k) < 0 ? homeHidden.concat(k) : homeHidden.filter((x) => x !== k);
+    try { localStorage.setItem(LS.homeHidden, JSON.stringify(homeHidden)); } catch (e) {}
+    haptic();
+    updateHomePref();
   }));
   $("#card-setup").addEventListener("click", openCardSetup);
   $("#sign-out").addEventListener("click", signOut);
