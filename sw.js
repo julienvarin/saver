@@ -1,6 +1,6 @@
 /* Simple network-first service worker for the app shell.
    Bump CACHE when you change cached assets to force an update. */
-const CACHE = "saver-v34";
+const CACHE = "saver-v35";
 const ASSETS = [
   "./",
   "index.html",
@@ -31,8 +31,10 @@ self.addEventListener("fetch", (e) => {
   // Only handle same-origin GET requests; let Supabase/API calls pass through.
   if (req.method !== "GET" || new URL(req.url).origin !== self.location.origin) return;
 
+  // no-cache: always ask the server (GitHub Pages otherwise lets the browser
+  // reuse a file for 10 minutes, so a deploy wouldn't show on the next open)
   e.respondWith(
-    fetch(req)
+    fetch(req.url, { cache: "no-cache", credentials: "same-origin" })
       .then((res) => {
         const copy = res.clone();
         caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
