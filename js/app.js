@@ -1602,12 +1602,16 @@ function budgetFigures(rows, period) {
       paid: rows.some((r) => (r.kind === "need" || r.kind === "want") && isFlat(r) === (kind === "flat") && matchesName(r, b.name)) };
   });
   const unpaid = (kind) => current ? bills.filter((b) => b.kind === kind && !b.paid).reduce((s, b) => s + b.amount, 0) : 0;
-  const upcoming = unpaid("need");
+  // money in that covers bills and isn't used up by needs already paid goes
+  // toward the needs bills still to pay
+  const billsDue = unpaid("need");
+  const coversLeft = Math.max(0, covers - needSpent);
+  const upcoming = Math.max(0, billsDue - coversLeft);
   const upcomingWant = unpaid("want");
   const upcomingFlat = unpaid("flat");
 
   return { salary, current, today, dim, late, needSpent, wantSpent, saved, covers, bonus, extra,
-    needBudget, wantBudget, saveTarget, needMine, bills, upcoming, upcomingWant, flatIn, flatOut, upcomingFlat };
+    needBudget, wantBudget, saveTarget, needMine, bills, billsDue, coversLeft, upcoming, upcomingWant, flatIn, flatOut, upcomingFlat };
 }
 
 // Bills by due date, the ones without a day last.
@@ -2402,7 +2406,22 @@ function homeBucket(period, kind, label, icon, spent, target, opts) {
   } else {
     row.appendChild(bar(kind, spent, 0, opts.max || 1));
   }
+  if (opts.note) row.appendChild(el("div", "hb-note", opts.note));
   return row;
+}
+
+// Under the Needs bar: the striped part is bills still to pay, less money in
+// that covers them; say so, and why it's red when they alone go past the line.
+function needNote(f) {
+  const notes = [];
+  if (f.billsDue > 0) {
+    notes.push(euro0(f.billsDue) + " of bills still to pay (striped)");
+    if (f.coversLeft > 0) notes.push(euro0(Math.min(f.coversLeft, f.billsDue)) + " of it covered by money in");
+    if (f.needMine <= f.needBudget && f.needMine + f.upcoming > f.needBudget) notes.push("more than your needs budget");
+  } else if (f.covers > 0) {
+    notes.push(euro0(f.covers) + " of money in taken off");
+  }
+  return notes.join(" · ");
 }
 
 function renderHomeBudgets(period, rows, f) {
@@ -2423,7 +2442,7 @@ function renderHomeBudgets(period, rows, f) {
   }
   wrap.appendChild(homeBucket(period, "want", "Wants", "✦", f.wantSpent, f.wantBudget,
     { reserved: f.upcomingWant, marker: (f.today / f.dim) * 100 }));
-  wrap.appendChild(homeBucket(period, "need", "Needs", "✓", f.needMine, f.needBudget, { reserved: f.upcoming }));
+  wrap.appendChild(homeBucket(period, "need", "Needs", "✓", f.needMine, f.needBudget, { reserved: f.upcoming, note: needNote(f) }));
   wrap.appendChild(homeBucket(period, "save", "Save", "◆", f.saved, f.saveTarget));
   if (f.extra) {
     const inBtn = el("button", "link hb-in", "+ " + euro0(f.extra) + " money in this month ›");

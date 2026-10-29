@@ -628,6 +628,7 @@ body.tabbed .toast { bottom: calc(104px + var(--safe-bottom)); }
 .hb-ico.flat { background: rgba(236, 72, 153, .14); }
 .hb-right.warn { color: var(--flat-text); }
 .hb-note { color: var(--muted); font-size: 13px; }
+.b-track + .hb-note { margin-top: 10px; }
 .hb-main { flex: 1; min-width: 0; }
 .hb-name { font-size: 16px; font-weight: 700; }
 .hb-sub { color: var(--muted); font-size: 13px; margin-top: 2px; }

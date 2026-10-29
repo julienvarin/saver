@@ -124,7 +124,8 @@ one tap logs it again. For a new one, type the amount, a title, pick where it go
 - **🏠 Flat** (the sub-tenant's rent for a flat you sub-let) — goes on the flat's own balance, see
   below. Nothing in your budget moves.
 - **Covers bills** (someone chipping in for rent, internet, electricity) — taken off what you spent
-  on Needs, so the Needs bar shows your own share. No line moves.
+  on Needs, so the Needs bar shows your own share; what's left of it covers the bills still to
+  pay. No line moves.
 - **Extra · split** (a DJ fee, an eBay sale) — added to your salary and split by the same
   percentages, so every line grows.
 
@@ -145,7 +146,9 @@ is just a **Need**. Home's budgets are three bars — solid is what's spent (or 
 what's still planned:
 
 - **Wants** — spent, plus subscriptions still to come. The white line is today: stay left of it.
-- **Needs** — your share paid so far (needs minus money in), plus bills still to pay this month.
+- **Needs** — your share paid so far (needs minus money in), plus bills still to pay this month
+  (less any money in that covers them). The note under it spells this out; the bar turns red when
+  those bills alone add up to more than your needs budget.
 - **Save** — what you've put aside so far, against your save share. Whatever is left in Needs or
   Wants at the end of the month is yours to move here.
 
