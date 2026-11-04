@@ -157,6 +157,12 @@ A bar that goes past its line gets an outline: red for Needs / Wants, green for 
 Reimbursable expenses count as what's left on you after the refund; Settings can switch them to
 the full amount. Mark the money as received with the **got it?** badge on the entry.
 
+**🍽 Lunch** (on the details screen) is for work lunches, which pay back €7.50 each with the next
+salary. One **Save lunch** logs the first €7.50 as a **Need** and anything above it as a **Want**
+(a €12 lunch: €7.50 need + €4.50 want; a €6 one is all need). Log your salary as it lands,
+reimbursements included: the money you got back is income, and the lunch was a real expense, so
+nothing is counted twice. Change the amount in `LUNCH` in [`js/app.js`](js/app.js).
+
 **By category** on Insights starts on wants — that's where you can cut back. Needs are mostly
 fixed bills; switch to them with the toggle.
 

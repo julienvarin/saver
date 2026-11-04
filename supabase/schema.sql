@@ -23,6 +23,9 @@ alter table public.expenses add column if not exists reimb_amount numeric(12, 2)
 -- The second flat (sub-let): its bills and the sub-tenant's rent live in their own balance,
 -- outside needs / wants, so a rent that's late (or paid early) never skews the budget.
 alter table public.expenses add column if not exists flat boolean not null default false;
+-- Work lunch: its first €7.50 (paid back with the next salary) is a need row, anything above a
+-- want row; both carry the flag so the title chip logs it as a lunch again.
+alter table public.expenses add column if not exists lunch boolean not null default false;
 -- kinds: 'need', 'want', 'save' (money put aside) and 'income' (extra money in on top of
 -- salary, e.g. a sub-tenant paying you). The old 'debt' kind is gone: a late bill is just a need.
 alter table public.expenses drop constraint if exists expenses_kind_check;
