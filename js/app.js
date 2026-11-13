@@ -518,6 +518,7 @@ async function refreshSavedCats() {
 /* ---- remembered titles: one tap re-logs "Lidl · Groceries · Need" ---- */
 let known = new Map(); // norm(title) -> { key, title, amount, categories, kind, count }, most recent first
 let byMerchant = new Map(); // merchantKey(merchant) -> what a card payment there was last logged as
+let titlesReady = Promise.resolve(); // the first refreshSavedCats(): byMerchant is filled after it
 
 // Case, accent and spacing-insensitive key ("  loyer " == "Loyer").
 function norm(s) {
@@ -1821,7 +1822,8 @@ async function saveBudgetSettings() {
 // An iPhone Shortcut (Wallet "Transaction" automation) posts each Apple Pay
 // payment to log_card_payment() in Supabase. They wait in card_inbox until
 // you tap Need / Want; the title, categories and kind are guessed from what
-// you logged there (or under that name) before.
+// you logged there (or under that name) before. A merchant you've already
+// logged a card payment at is logged again the same way on its own.
 let inbox = [];     // card payments to confirm, newest first
 let homeRows = [];  // this month's entries, to spot a payment you already logged by hand
 
@@ -1846,15 +1848,16 @@ function tidyMerchant(m) {
   return t === t.toUpperCase() ? t.toLowerCase().replace(/(^|[\s'-])\S/g, (c) => c.toUpperCase()) : t;
 }
 
-// { title, categories, kind } for a card payment: what this merchant was last
-// logged as, else a title you use that matches it word for word ("Lidl" in
-// "LIDL DIENSTLEISTUNG"), most used first. kind is null when there's no clue.
+// { title, categories, kind, sure } for a card payment: what this merchant was
+// last logged as (sure: it's logged without asking), else a title you use that
+// matches it word for word ("Lidl" in "LIDL DIENSTLEISTUNG"), most used first.
+// kind is null when there's no clue.
 function guessFor(item) {
   const m = merchantKey(item.merchant);
   const fresh = { title: tidyMerchant(item.merchant) || "Card payment", categories: [], kind: null };
   if (!m) return fresh;
   const seen = byMerchant.get(m);
-  if (seen) return { title: seen.title, categories: seen.categories.slice(), kind: seen.kind };
+  if (seen) return { title: seen.title, categories: seen.categories.slice(), kind: seen.kind, sure: true };
   const words = (s) => " " + s + " ";
   const hit = Array.from(known.values())
     .filter((k) => k.kind !== "income")
@@ -1865,9 +1868,9 @@ function guessFor(item) {
 }
 
 // An entry you logged by hand for the same amount within a day: probably this payment.
-function alreadyLogged(item) {
+function alreadyLogged(item, rows = homeRows) {
   const when = new Date(item.created_at);
-  return homeRows.find((r) => !r.merchant && !isIncome(r) && Math.round(Number(r.amount)) === Math.round(Number(item.amount))
+  return rows.find((r) => !r.merchant && !isIncome(r) && Math.round(Number(r.amount)) === Math.round(Number(item.amount))
     && Math.abs(new Date(r.created_at) - when) < DAY);
 }
 
@@ -1903,6 +1906,51 @@ async function confirmCard(item, kind) {
   afterInboxChange();
   const id = data && data[0] && data[0].id;
   toast("Logged " + record.title + " · " + (kind === "need" ? "Need" : "Want"), false, id ? { label: "Undo", fn: () => undoInsert(id, item) } : null);
+}
+
+// A merchant you've logged before is logged again the same way, no tap needed.
+// Only exact merchant matches with a need / want kind, and never one that looks
+// already logged by hand (that stays in the inbox to dismiss). The inbox row is
+// claimed first, so two open devices can't log the same payment twice.
+// rows: this month's entries. Returns what was logged: [{ id, item, record }].
+async function autoLogKnown(rows) {
+  await titlesReady;
+  const sure = inbox.filter((i) => { const g = guessFor(i); return g.sure && (g.kind === "need" || g.kind === "want") && !alreadyLogged(i, rows); });
+  if (!sure.length) return [];
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) return [];
+  const done = [];
+  for (const item of sure) {
+    const { data: claimed, error: claimErr } = await sb.from("card_inbox").delete().eq("id", item.id).select("id");
+    if (claimErr || !claimed || !claimed.length) continue; // gone already (another device)
+    const g = guessFor(item);
+    const record = { user_id: user.id, amount: Math.round(Number(item.amount) || 0), title: g.title, categories: g.categories,
+      kind: g.kind, merchant: item.merchant, created_at: item.created_at };
+    const { data, error } = await sb.from("expenses").insert(record).select("id");
+    if (error) { console.error(error); await sb.from("card_inbox").insert(item); continue; } // back to the inbox
+    inbox = inbox.filter((i) => i.id !== item.id);
+    rememberTitle(record);
+    rememberMerchant(record);
+    done.push({ id: data && data[0] && data[0].id, item, record });
+  }
+  return done;
+}
+
+// "Logged Lidl · €12 · Need" with Undo (the payment goes back to the inbox).
+function toastAutoLogged(done) {
+  const one = done.length === 1 && done[0];
+  const msg = one ? "Auto-logged " + one.record.title + " · " + euro0(one.record.amount) + " · " + (one.record.kind === "need" ? "Need" : "Want")
+    : "Auto-logged " + done.length + " card payments from known merchants";
+  toast(msg, false, { label: "Undo", fn: async () => {
+    const ids = done.map((d) => d.id).filter(Boolean);
+    const { error } = await sb.from("expenses").delete().in("id", ids);
+    if (error) { toast(error.message, true); return; }
+    await sb.from("card_inbox").insert(done.map((d) => d.item));
+    refreshSavedCats();
+    haptic();
+    toast("Back in card payments to confirm");
+    refresh();
+  } });
 }
 
 // Not an expense (or already logged by hand): drop it.
@@ -1981,7 +2029,7 @@ function inboxRow(item) {
 
 function openInbox() {
   const list = el("div", "ib-list");
-  list.appendChild(el("p", "hint small-hint ib-hint", "Tap Need or Want to log a payment as guessed, or tap it to change the details first."));
+  list.appendChild(el("p", "hint small-hint ib-hint", "Tap Need or Want to log a payment as guessed, or tap it to change the details first. Next time you pay at the same merchant, it is logged the same way automatically."));
   inbox.forEach((i) => list.appendChild(inboxRow(i)));
   openSheet("Card payments to confirm", [list]);
   $("#sheet").dataset.view = "inbox";
@@ -2070,7 +2118,14 @@ async function loadHome() {
   await loadBudget();
   const period = periodFor(new Date());
   const prev = periodFor(addDays(period.start, -1));
-  const [cur, old, , flat] = await Promise.all([fetchRows(period), fetchRows(prev), loadInbox(), flatBalance()]);
+  let [cur, old, , flat] = await Promise.all([fetchRows(period), fetchRows(prev), loadInbox(), flatBalance()]);
+  if (seq !== homeSeq) return;
+  if (cur.error) { toast(cur.error.message, true); return; }
+  const auto = await autoLogKnown(cur.data || []);
+  if (auto.length) {
+    cur = await fetchRows(period);
+    if (seq === homeSeq) toastAutoLogged(auto);
+  }
   if (seq !== homeSeq) return;
   if (cur.error) { toast(cur.error.message, true); return; }
   renderHome(period, cur.data, old.error ? null : old.data, prev, flat);
@@ -2771,7 +2826,7 @@ async function boot() {
 }
 
 function startApp() {
-  refreshSavedCats();
+  titlesReady = refreshSavedCats();
   resetEntry();
   showStep("step-amount");
   budgetLoaded = false; // fresh after signing in
