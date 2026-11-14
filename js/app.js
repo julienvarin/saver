@@ -2199,6 +2199,13 @@ function ring(spentPct, reservedPct, over) {
   const s = Math.max(0, Math.min(1, spentPct));
   const r = Math.max(0, Math.min(1 - s, reservedPct));
   const svg = svgEl("svg", { viewBox: "0 0 120 120", "aria-hidden": "true" });
+  // green → lime along the spent arc (the plush "selected" gradient)
+  const defs = svgEl("defs", {});
+  const grad = svgEl("linearGradient", { id: "ring-grad", x1: "0", y1: "0", x2: "1", y2: "1" });
+  grad.appendChild(svgEl("stop", { offset: "0", "stop-color": "#16c26b" }));
+  grad.appendChild(svgEl("stop", { offset: "1", "stop-color": "#b8e62e" }));
+  defs.appendChild(grad);
+  svg.appendChild(defs);
   const circle = (cls, len, offset) => {
     const c = svgEl("circle", { cx: 60, cy: 60, r: 50, class: cls });
     if (len != null) {
