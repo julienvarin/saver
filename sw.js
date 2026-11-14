@@ -1,10 +1,11 @@
 /* Simple network-first service worker for the app shell.
    Bump CACHE when you change cached assets to force an update. */
-const CACHE = "saver-v37";
+const CACHE = "saver-v38";
 const ASSETS = [
   "./",
   "index.html",
   "css/style.css",
+  "css/plush.css",
   "js/app.js",
   "manifest.webmanifest",
   "icons/icon-192.png",

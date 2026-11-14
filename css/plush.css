@@ -1,0 +1,255 @@
+/* ==================================================================
+   Plush skin — soft, rounded, monochrome with a green→lime "selected"
+   gradient (after plush-ui.pages.dev). Loaded after style.css: it only
+   re-tokens and re-shapes; layout and behaviour stay in style.css.
+   ================================================================== */
+
+:root {
+  --bg: #fbfbfa;
+  --surface: #ffffff;
+  --surface-2: #f0f0ee;
+  --fill-strong: #e8e8e5;
+  --line: #e4e4e1;
+  --text: #141414;
+  --muted: #6e6e72;
+  --placeholder: #a3a3a6;
+  --accent: #161616;
+  --accent-2: #161616;
+  --on-accent: #ffffff;
+  --hero-1: #161616;
+  --hero-2: #161616;
+  --need: #2fc26b;
+  --want: #f5a524;
+  --save: #4b8bf5;
+  --flat: #ee4a92;
+  --flat-text: #d6337a;
+  --danger: #f2473d;
+  --need-text: #1f9d55;
+  --want-text: #b8730a;
+  --tip-bg: #ffffff;
+  --tip-line: transparent;
+  --tip-text: #6e6e72;
+  --toast: #161616;
+  --toast-text: #ffffff;
+  --sel-a: #16c26b;
+  --sel-b: #b8e62e;
+  --sel: linear-gradient(135deg, var(--sel-a), var(--sel-b));
+  --sel-line: linear-gradient(90deg, var(--sel-a), var(--sel-b));
+  --on-sel: #141414;
+  --sel-gloss: inset 0 1px 0 rgba(255, 255, 255, .45);
+  --shadow: 0 1px 2px rgba(20, 20, 20, .04), 0 8px 24px rgba(20, 20, 20, .04);
+  --shadow-knob: 0 1px 3px rgba(20, 20, 20, .16), 0 2px 8px rgba(20, 20, 20, .06);
+  --shadow-lg: 0 12px 40px rgba(20, 20, 20, .12);
+  --radius: 28px;
+  --r-row: 20px;
+  --font: ui-rounded, "SF Pro Rounded", "Open Runde", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --spring: linear(0, .062, .203, .372, .538, .683, .801, .89, .952, .993, 1.016, 1.028, 1.031, 1.029, 1.025, 1.02, 1.015, 1.01, 1.006, 1.004, 1.002, 1, 1, .999, .999, .999, .999, .999, 1);
+  --dur-spring: .7s;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0e0e0e;
+    --surface: #1a1a1a;
+    --surface-2: #242424;
+    --fill-strong: #2e2e2e;
+    --line: #2c2c2c;
+    --text: #f4f4f2;
+    --muted: #9a9a9e;
+    --placeholder: #5e5e62;
+    --accent: #f4f4f2;
+    --accent-2: #f4f4f2;
+    --on-accent: #141414;
+    --hero-1: #1a1a1a;
+    --hero-2: #1a1a1a;
+    --need: #3ad57a;
+    --want: #f7b33e;
+    --save: #6ea2f7;
+    --flat: #f36aa6;
+    --flat-text: #f36aa6;
+    --danger: #ff6159;
+    --need-text: #3ad57a;
+    --want-text: #f7b33e;
+    --tip-bg: #1a1a1a;
+    --tip-text: #9a9a9e;
+    --toast: #f4f4f2;
+    --toast-text: #141414;
+    --shadow: none;
+    --shadow-knob: 0 1px 3px rgba(0, 0, 0, .5);
+    --shadow-lg: 0 12px 40px rgba(0, 0, 0, .55);
+  }
+}
+
+html, body { font-family: var(--font); }
+body::before { background: #161616; }
+@media (prefers-color-scheme: dark) { body::before { background: var(--bg); } }
+
+/* ---- springy presses, everywhere ---- */
+.btn, .key, .chip, .pill, .kind-btn, .sg-chip, .hist-item, .hb-row, .plan-act, .round-btn, .tab, .tab-fab,
+.fchip, .ib-btn, .hi-act, .seg button, .hero-cta, .ins-tile, .cat-row, .split-row, .date-chip, .er-kind {
+  transition: transform var(--dur-spring) var(--spring), background-color .2s ease, color .2s ease, box-shadow .2s ease, opacity .2s ease;
+}
+.btn:active, .chip:active, .pill:active, .fchip:active, .plan-act:active, .date-chip:active, .ib-btn:active { transform: scale(.95); transition-duration: .12s; }
+.key:active, .round-btn:active, .hi-act:active { transform: scale(.86); transition-duration: .12s; }
+.kind-btn:active, .hero-cta:active { transform: scale(.93); transition-duration: .12s; }
+.hist-item:active, .hb-row:active, .cat-row:active, .ins-tile:active { transform: scale(.97); transition-duration: .12s; }
+
+/* ---- type: medium/semibold, a touch less shouty ---- */
+.title, .page-head h1 { font-weight: 700; letter-spacing: -.02em; }
+.home-hello { font-weight: 700; letter-spacing: -.02em; }
+.sec-head h2 { font-size: 20px; font-weight: 700; letter-spacing: -.01em; }
+.hero-big, .ins-big, .amount, .det-amount, .saved-amount { font-weight: 700; letter-spacing: -.03em; }
+.sheet-title { font-weight: 700; }
+
+/* ---- buttons: pills ---- */
+.btn { border-radius: 999px; min-height: 56px; font-size: 18px; background: var(--surface-2); }
+.btn.primary { background: var(--accent); color: var(--on-accent); }
+.btn.small { min-height: 0; border-radius: 999px; }
+.btn.ghost { background: transparent; }
+.link { color: var(--text); text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 4px; text-decoration-thickness: 2px; }
+.brand { background: var(--sel); color: var(--on-sel); border-radius: 22px; box-shadow: var(--sel-gloss); }
+
+/* ---- fields: white pills with a soft lift ---- */
+.field { border: none; border-radius: 999px; padding: 17px 22px; box-shadow: var(--shadow-knob); }
+.field:focus { box-shadow: 0 0 0 1.5px var(--text), var(--shadow-knob); }
+.inline-field, .edit-row, .split-cell { border: none; border-radius: 18px; }
+.split-cell.need { box-shadow: inset 0 0 0 1.5px var(--need); }
+.split-cell.want { box-shadow: inset 0 0 0 1.5px var(--want); }
+.split-cell.save { box-shadow: inset 0 0 0 1.5px var(--save); }
+
+/* ---- chips: white pills, selected = green→lime ---- */
+.chip, .pill, .fchip, .sg-chip, .date-chip { border: none; box-shadow: var(--shadow-knob); }
+.chip { font-weight: 500; }
+.chip.selected, .pill.active, .fchip.active, .pill.sub.active {
+  background: var(--sel); color: var(--on-sel); box-shadow: var(--sel-gloss), 0 6px 16px -8px var(--sel-a);
+}
+.chip.selected::before, .pill.active::before, .fchip.active::before { content: "✓ "; font-weight: 700; }
+.chip.add { border: 1.5px dashed var(--line); box-shadow: none; background: transparent; }
+.sg-chip { background: var(--surface); border-radius: 999px; padding: 10px 16px; }
+.date-chip { padding: 10px 16px; }
+.date-chip.set { box-shadow: 0 0 0 2px var(--text); }
+.fchip.owed:not(.active) { box-shadow: inset 0 0 0 1.5px var(--want); }
+.fchip.flat:not(.active) { box-shadow: inset 0 0 0 1.5px var(--flat); }
+
+/* ---- segmented control: grey track, white knob ---- */
+.seg { border-radius: 999px; padding: 4px; background: var(--surface-2); }
+.seg button { border-radius: 999px; padding: 9px 16px; font-weight: 600; }
+.seg button.active { background: var(--surface); box-shadow: var(--shadow-knob); }
+
+/* ---- keypad: soft tiles ---- */
+.keypad { gap: 10px; }
+.key { border-radius: 22px; font-weight: 500; box-shadow: var(--shadow-knob); }
+.key:active { background: var(--surface-2); }
+
+/* ---- need / want / save ---- */
+.kind-btn { border: none; border-radius: var(--radius); font-weight: 600; }
+.kind-btn .k-emoji {
+  width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; font-size: 26px;
+}
+.kind-btn.need .k-emoji { background: color-mix(in oklab, var(--need) 16%, transparent); }
+.kind-btn.want .k-emoji { background: color-mix(in oklab, var(--want) 18%, transparent); }
+.kind-btn.save .k-emoji { background: color-mix(in oklab, var(--save) 16%, transparent); }
+.kind-btn.selected { box-shadow: 0 0 0 2px var(--text); background: var(--surface); }
+.kind-btn.small { border-radius: 999px; }
+.kind-btn.small .k-emoji { width: auto; height: auto; background: none; font-size: 18px; }
+
+/* saved: the plush check */
+.check { background: var(--sel); color: var(--on-sel); box-shadow: var(--sel-gloss), 0 14px 30px -12px var(--sel-a);
+  animation: plush-pop .6s var(--spring); }
+@keyframes plush-pop { 0% { transform: scale(.55); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+
+/* ---- cards & rows ---- */
+.bcard { border-radius: var(--radius); padding: 20px; }
+.hist-item, .plan-row, .hb-row, .set-list, .hist-empty.card { border-radius: var(--r-row); }
+.hist-item { padding: 15px 18px; }
+.hi-kind { width: 10px; height: 10px; }
+.hi-act { border-radius: 50%; }
+.plan-act { border-radius: 999px; padding: 9px 14px; background: var(--accent); color: var(--on-accent); }
+.plan-act.done { background: var(--sel); color: var(--on-sel); box-shadow: var(--sel-gloss); }
+.plan-row.done { opacity: .55; }
+.badge { padding: 3px 8px; }
+.hb-ico { border-radius: 50%; }
+.ins-tile { border-radius: 18px; }
+.tip-ico { border-radius: 50%; }
+
+/* progress: thick, round, gradient for "good" */
+.b-track { height: 10px; background: var(--surface-2); }
+.b-fill { border-radius: 999px; }
+.b-fill.need { background: var(--sel-line); }
+.cat-fill.need { background: var(--sel-line); }
+.stack-seg.need { background: var(--sel-line); }
+.bills-bar .b-fill { background: var(--sel-line); }
+.b-marker { background: var(--text); width: 3px; }
+
+/* ---- home hero: the dark card with the gradient ring ---- */
+.hero {
+  background: #161616; color: #fff; border-radius: 32px;
+  box-shadow: 0 24px 48px -28px rgba(20, 20, 20, .6);
+}
+@media (prefers-color-scheme: dark) { .hero { background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); } }
+.hero-pill { background: rgba(255, 255, 255, .1); }
+.hero-status { background: var(--sel); color: var(--on-sel); box-shadow: var(--sel-gloss); }
+.hero-status.warn { background: var(--want); color: #1f1300; box-shadow: none; }
+.hero-status.bad { background: var(--danger); color: #fff; box-shadow: none; }
+.hero-tile { background: rgba(255, 255, 255, .08); border-radius: 20px; }
+.ht-val.good { color: var(--sel-b); }
+.ht-val.bad { color: #ff8a83; }
+.hero-big.bad { color: #ff8a83; }
+.ring circle { stroke-width: 11; }
+.ring-track { stroke: rgba(255, 255, 255, .1); }
+.ring-res { stroke: rgba(255, 255, 255, .3); }
+.ring-fill { stroke: url(#ring-grad); }
+.ring-fill.over { stroke: var(--danger); }
+.hero-cta { border-radius: 999px; background: #fff; color: #141414; min-height: 50px; }
+
+/* tip: a plain white card, icon in a soft circle */
+.tip { box-shadow: var(--shadow); border: none; border-radius: var(--radius); }
+.tip-ico { background: color-mix(in oklab, var(--want) 22%, transparent); }
+.tip-x { border-radius: 50%; }
+
+/* bell: plush badge */
+.bell-count { background: var(--danger); box-shadow: 0 0 0 2px var(--bg); }
+.round-btn { box-shadow: var(--shadow-knob); }
+
+/* ---- tab bar: floating pill, black + ---- */
+.tabbar { border-radius: 999px; height: 72px; box-shadow: var(--shadow-lg); }
+.tab.active { color: var(--text); }
+.tab:not(.active) { color: var(--placeholder); }
+.tab-fab {
+  background: var(--accent); color: var(--on-accent); width: 60px; height: 60px;
+  transform: none; box-shadow: var(--shadow-knob);
+}
+.tab-fab:active { transform: scale(.86); transition-duration: .12s; }
+
+/* ---- sheets & toasts ---- */
+.sheet { background: rgba(20, 20, 20, .32); }
+.sheet-card { border-radius: 32px 32px 0 0; }
+.sheet-grip { background: var(--fill-strong); }
+.toast { border-radius: 999px; min-height: 52px; padding: 12px 22px; font-weight: 500; animation: plush-toast .5s var(--spring); }
+@keyframes plush-toast { from { opacity: 0; transform: translate(-50%, 12px) scale(.9); } to { opacity: 1; transform: translateX(-50%); } }
+.toast.err { background: var(--danger); color: #fff; }
+.toast-act { color: var(--sel-b); }
+@media (prefers-color-scheme: dark) { .toast-act { color: var(--need-text); } }
+
+/* ---- charts ---- */
+.chart .ln.cur { stroke: var(--sel-a); }
+.chart .area { fill: var(--sel-a); opacity: .12; }
+.chart .end-dot { fill: var(--sel-a); }
+.chart .col .bar { fill: var(--sel-a); opacity: .3; }
+.lg-line { background: var(--sel-a); }
+.chart-tip { border-radius: 14px; }
+
+/* ---- misc ---- */
+.spinner { border-color: var(--surface-2); border-top-color: var(--text); }
+.ib-btn { border: none; border-radius: 999px; box-shadow: var(--shadow-knob); background: var(--surface); }
+.ib-btn.need.guess { background: var(--sel); border: none; color: var(--on-sel); box-shadow: var(--sel-gloss); }
+.ib-btn.want.guess { background: var(--want); }
+.er-kind { border-radius: 999px; }
+.cp-row { border-radius: 18px; }
+.set-row b.accent { color: var(--need-text); }
+.empty-ico, .sheet-empty-ico { background: var(--surface-2); }
+.sheet-empty-ico { background: var(--sel); color: var(--on-sel); }
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --dur-spring: 0s; }
+  .check, .toast { animation: none; }
+}
