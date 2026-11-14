@@ -375,6 +375,8 @@ body {
 .badge { font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 999px; white-space: nowrap; flex: 0 0 auto; }
 .badge.reimb-pending { background: rgba(251, 191, 36, .18); color: var(--want-text); }
 .badge[role=button] { cursor: pointer; }
+.badge.lunch { background: rgba(52, 211, 153, .12); color: var(--muted); }
+.lunch-note { text-align: center; margin: -6px 0 14px; }
 .badge.reimb-done { background: rgba(52, 211, 153, .18); color: var(--need-text); }
 .badge.flat { background: rgba(236, 72, 153, .14); color: var(--flat-text); }
 .hi-amount { font-size: 17px; font-weight: 600; flex: 0 0 auto; }

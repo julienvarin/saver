@@ -186,6 +186,7 @@ const entry = {
   returnTo: null, // tab screen the entry started from: go back there once saved
   extra: false, // money in: extra (split like the salary) rather than covering bills
   flat: false, // the sub-let flat's: its own balance, outside needs / wants
+  lunch: false, // work lunch: the first LUNCH euros are a need (paid back in the salary), the rest a want
   inbox: null, // the card payment being confirmed (removed from the inbox once saved)
 };
 
@@ -199,6 +200,7 @@ function resetEntry() {
   entry.reimbAmount = "";
   entry.extra = false;
   entry.flat = false;
+  entry.lunch = false;
   entry.date = toDateInput(new Date());
   entry.createdAt = null;
   entry.editId = null;
@@ -313,6 +315,7 @@ function updateDateUI() {
 function toggleReimb() {
   entry.reimbursable = !entry.reimbursable;
   if (!entry.reimbursable) entry.reimbursed = false; // received only makes sense if reimbursable
+  if (entry.reimbursable) entry.lunch = false;
   haptic();
   updateFlagsUI();
 }
@@ -327,17 +330,46 @@ function updateIncomeUI() {
 }
 function setIncomeKind(k) { entry.extra = k === "extra"; entry.flat = k === "flat"; haptic(); updateIncomeUI(); }
 
+// Work lunch: you get LUNCH euros back in the next salary for each one you declare.
+// The salary is logged as it lands (reimbursements included), so the lunch is
+// logged in full: its first LUNCH euros as a Need (eating is a need, and it's paid
+// back anyway), anything above as a Want (the pricier lunch is your choice).
+const LUNCH = 7.5;
+function lunchParts(amount) {
+  const need = Math.min(LUNCH, amount);
+  return { need, want: Math.round((amount - need) * 100) / 100 };
+}
+
 // An expense for the flat skips Need / Want: one Save puts it on the flat's balance.
+// So does a lunch: one Save splits it into its need and want parts.
 function updateFlatUI() {
   const t = $("#flat-toggle");
   if (!t) return;
   const income = entry.kind === "income";
+  const one = !income && (entry.flat || entry.lunch);
   t.classList.toggle("active", entry.flat);
-  $$("#det-body .kind-grid, #det-body .kind-row").forEach((n) => (n.hidden = entry.flat && !income));
-  $("#det-save").hidden = !income && !entry.flat;
-  $("#det-save").textContent = !income && entry.flat ? "Save to flat" : "Save";
+  const l = $("#lunch-toggle");
+  l.classList.toggle("active", entry.lunch);
+  l.hidden = !!entry.editId; // an existing lunch part edits as a plain need / want
+  const note = $("#lunch-note");
+  note.hidden = !entry.lunch || income;
+  if (entry.lunch) {
+    const p = lunchParts(entry.amount);
+    note.textContent = p.want > 0
+      ? formatEuro(p.need) + " need (paid back with your salary) + " + formatEuro(p.want) + " want"
+      : "All need: paid back with your salary";
+  }
+  $$("#det-body .kind-grid, #det-body .kind-row").forEach((n) => (n.hidden = one));
+  $("#det-save").hidden = !income && !one;
+  $("#det-save").textContent = income ? "Save" : entry.lunch ? "Save lunch" : entry.flat ? "Save to flat" : "Save";
 }
-function toggleFlat() { entry.flat = !entry.flat; haptic(); updateFlatUI(); }
+function toggleFlat() { entry.flat = !entry.flat; if (entry.flat) entry.lunch = false; haptic(); updateFlagsUI(); }
+function toggleLunch() {
+  entry.lunch = !entry.lunch;
+  if (entry.lunch) { entry.flat = false; entry.reimbursable = false; entry.reimbursed = false; }
+  haptic();
+  updateFlagsUI();
+}
 function toggleReceived() { entry.reimbursed = !entry.reimbursed; haptic(); updateFlagsUI(); }
 
 // Details step: title, recent entries, categories, flags, need / want.
@@ -502,7 +534,8 @@ function rememberCats(cats) {
 // Learn the categories and remembered titles from your expenses, most used first.
 async function refreshSavedCats() {
   const query = (cols) => sb.from("expenses").select(cols).order("created_at", { ascending: false }).limit(2000);
-  let { data, error } = await query("title, amount, categories, kind, created_at, merchant, flat");
+  let { data, error } = await query("title, amount, categories, kind, created_at, merchant, flat, lunch");
+  if (error) ({ data, error } = await query("title, amount, categories, kind, created_at, merchant, flat"));
   if (error) ({ data, error } = await query("title, amount, categories, kind, created_at, merchant"));
   if (error) ({ data, error } = await query("title, amount, categories, kind, created_at")); // old schema
   if (error || !data) return;
@@ -532,7 +565,7 @@ function learnTitles(rows) {
     if (!key || !r.kind) return;
     const k = next.get(key);
     if (k) k.count++;
-    else next.set(key, { key, title: r.title.trim(), amount: Number(r.amount) || 0, categories: r.categories || [], kind: r.kind, flat: !!r.flat, count: 1 });
+    else next.set(key, { key, title: r.title.trim(), amount: Number(r.amount) || 0, categories: r.categories || [], kind: r.kind, flat: !!r.flat, lunch: !!r.lunch, count: 1 });
   });
   known = next;
   byMerchant = new Map();
@@ -545,7 +578,7 @@ function rememberTitle(rec) {
   if (!key || !rec.kind) return;
   const old = known.get(key);
   known.delete(key);
-  known = new Map([[key, { key, title: rec.title.trim(), amount: Number(rec.amount) || 0, categories: rec.categories || [], kind: rec.kind, flat: !!rec.flat, count: (old ? old.count : 0) + 1 }]].concat(Array.from(known)));
+  known = new Map([[key, { key, title: rec.title.trim(), amount: Number(rec.amount) || 0, categories: rec.categories || [], kind: rec.kind, flat: !!rec.flat, lunch: !!rec.lunch, count: (old ? old.count : 0) + 1 }]].concat(Array.from(known)));
 }
 
 function renderSuggest() {
@@ -562,7 +595,7 @@ function renderSuggest() {
     const b = el("button", "sg-chip");
     b.type = "button";
     b.appendChild(el("span", "dot " + (k.flat ? "flat" : k.kind !== "income" ? k.kind : isExtra(k) ? "save" : "need")));
-    b.appendChild(el("span", "sg-title", k.title));
+    b.appendChild(el("span", "sg-title", (k.lunch ? "🍽 " : "") + k.title));
     if (income) b.appendChild(el("span", "sg-cats", "+" + formatEuro(k.amount)));
     else if (k.categories.length) b.appendChild(el("span", "sg-cats", k.categories.join(" · ")));
     b.addEventListener("click", () => {
@@ -571,6 +604,7 @@ function renderSuggest() {
       entry.categories = k.categories.slice();
       entry.kind = k.kind;
       entry.flat = k.flat;
+      entry.lunch = !income && !!k.lunch;
       if (income) entry.extra = isExtra(k);
       saveExpense();
     });
@@ -585,7 +619,7 @@ function onTitleInput(value) {
   const k = known.get(norm(value));
   if (k && entry.kind === "income" && k.kind === "income") { entry.extra = isExtra(k); entry.flat = k.flat; updateIncomeUI(); }
   if (!k || entry.kind === "income") { updateKindUI(); return; }
-  if (k.flat !== entry.flat) { entry.flat = k.flat; updateFlatUI(); }
+  if (k.flat !== entry.flat || !!k.lunch !== entry.lunch) { entry.flat = k.flat; entry.lunch = !!k.lunch; updateFlagsUI(); }
   if (!entry.catsTouched) {
     resetChips();
     entry.categories = [];
@@ -663,6 +697,15 @@ async function saveExpense() {
     if (!createdAt) record.created_at = card.created_at; // when you paid, not when you confirmed
   }
 
+  // a lunch is saved as its need part, plus a want part for what's above LUNCH
+  const records = [record];
+  if (entry.lunch && !editing) {
+    const p = lunchParts(entry.amount);
+    if (!record.title) record.title = "Lunch";
+    Object.assign(record, { kind: "need", amount: p.need, lunch: true });
+    if (p.want > 0) records.push(Object.assign({}, record, { kind: "want", amount: p.want }));
+  }
+
   // optimistic confirmation
   $("#saved-amount").textContent = formatEuro(entry.amount);
   showStep("step-saved");
@@ -670,11 +713,11 @@ async function saveExpense() {
 
   const q = editing
     ? sb.from("expenses").update(record).eq("id", entry.editId)
-    : sb.from("expenses").insert(record).select();
+    : sb.from("expenses").insert(records).select();
   const { data, error } = await q;
   if (error) {
     console.error(error);
-    const oldSchema = /kind_check|flat/.test(error.message || "");
+    const oldSchema = /kind_check|flat|lunch/.test(error.message || "");
     toast(oldSchema ? "Re-run supabase/schema.sql in Supabase to enable this" : "Couldn't save: " + error.message, true);
     if (entry.quick) showStep("step-amount"); else enterDetails();
     return;
@@ -682,7 +725,7 @@ async function saveExpense() {
 
   const savedCatsUsed = record.kind === "income" ? [] : record.categories.slice();
   const back = entry.returnTo || "screen-home";
-  const newId = !editing && data && data[0] ? data[0].id : null;
+  const newIds = !editing && data ? data.map((r) => r.id) : [];
   rememberTitle(record);
   rememberMerchant(record);
   if (card) await removeFromInbox(card);
@@ -691,13 +734,15 @@ async function saveExpense() {
     rememberCats(savedCatsUsed);
     showStep("step-amount");
     goScreen(back);
-    if (newId) toast("Saved " + (record.title || formatEuro(record.amount)), false, { label: "Undo", fn: () => undoInsert(newId, card) });
+    const what = records.length > 1 ? record.title + " · " + formatEuro(record.amount) + " need + " + formatEuro(records[1].amount) + " want"
+      : record.title || formatEuro(record.amount);
+    if (newIds.length) toast("Saved " + what, false, { label: "Undo", fn: () => undoInsert(newIds, card) });
   }, 650);
 }
 
-// card: the card payment it came from goes back to the inbox
-async function undoInsert(id, card) {
-  const { error } = await sb.from("expenses").delete().eq("id", id);
+// ids: the rows just saved (a lunch can be two). card: the card payment it came from goes back to the inbox
+async function undoInsert(ids, card) {
+  const { error } = await sb.from("expenses").delete().in("id", ids);
   if (error) { toast(error.message, true); return; }
   if (card) await sb.from("card_inbox").insert(card);
   haptic();
@@ -976,6 +1021,7 @@ function renderItem(r) {
     }
   }
   if (isFlat(r)) sub.appendChild(makeBadge("🏠 Flat", "flat"));
+  if (r.lunch) sub.appendChild(makeBadge(r.kind === "want" ? "🍽 Lunch extra" : "🍽 Lunch", "lunch"));
   sub.appendChild(el("span", "cats", isIncome(r) ? (isFlat(r) ? "Money in" : isExtra(r) ? "Money in · Extra" : "Money in · Covers bills") : (r.categories || []).join(" · ") || "—"));
   main.appendChild(sub);
   row.appendChild(main);
@@ -2827,6 +2873,7 @@ function wire() {
   // flags + kind (tapping a kind saves)
   $("#reimb-toggle").addEventListener("click", toggleReimb);
   $("#flat-toggle").addEventListener("click", toggleFlat);
+  $("#lunch-toggle").addEventListener("click", toggleLunch);
   $("#received-toggle").addEventListener("click", toggleReceived);
   $("#reimb-amt").addEventListener("input", (e) => (entry.reimbAmount = e.target.value));
   $$(".kind-btn").forEach((b) => b.addEventListener("click", () => {
